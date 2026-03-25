@@ -283,18 +283,20 @@ function OpeningHoursModal({ hours, onSave, onClose }) {
   )
 }
 
-// ── Inbox View ────────────────────────────────────────────────────────────────
+// ── Inbox View ─────────────────────────────────────────────────────────────────
 function InboxView() {
   const [conversations, setConversations] = useState([])
   const [activeConv,    setActiveConv]    = useState(null)
   const [messages,      setMessages]      = useState([])
   const [reply,         setReply]         = useState('')
   const [loading,       setLoading]       = useState(false)
+  const [channel,       setChannel]       = useState('all')
+  const [folder,        setFolder]        = useState('all')
   const bottomRef = useRef(null)
 
   useEffect(() => { loadConversations() }, [])
   useEffect(() => { if (activeConv) loadMessages(activeConv.id) }, [activeConv])
-  useEffect(() => { bottomRef.current?.scrollIntoView({ behavior:'smooth' }) }, [messages])
+  useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [messages])
 
   async function loadConversations() {
     try { const { data } = await axios.get(API + '/api/conversations'); setConversations(data || []) } catch {}
@@ -305,91 +307,160 @@ function InboxView() {
   async function sendReply() {
     if (!reply.trim() || !activeConv) return
     setLoading(true)
-    const optimistic = { id:'tmp-'+Date.now(), body:reply, sender_type:'staff', created_at:new Date().toISOString() }
+    const optimistic = { id: 'tmp-' + Date.now(), body: reply, sender_type: 'staff', created_at: new Date().toISOString() }
     setMessages(prev => [...prev, optimistic])
     setReply('')
-    try { await axios.post(API + '/api/conversations/' + activeConv.id + '/messages', { body: reply, sender_type:'staff' }) } catch {}
+    try { await axios.post(API + '/api/conversations/' + activeConv.id + '/messages', { body: reply, sender_type: 'staff' }) } catch {}
     setLoading(false)
     loadConversations()
   }
-  async function seedTest() {
+  async function moveFolder(convId, newFolder) {
     try {
-      const { data: conv } = await axios.post(API + '/api/conversations', {
-        channel:'zalo', customer_name:'Ngoc Anh', customer_phone:'07700900123',
-        external_id:'test-'+Date.now(), last_message:'Xin chào, tôi muốn đặt lịch làm móng!'
-      })
-      await axios.post(API + '/api/conversations/' + conv.id + '/messages', {
-        body:'Xin chào, tôi muốn đặt lịch làm móng!', sender_type:'customer'
-      })
-      loadConversations()
-      setActiveConv(conv)
+      await axios.patch(API + '/api/conversations/' + convId + '/folder', { folder: newFolder })
+      setConversations(prev => prev.map(c => c.id === convId ? { ...c, folder: newFolder } : c))
+      if (activeConv?.id === convId) setActiveConv(prev => ({ ...prev, folder: newFolder }))
     } catch {}
   }
-  const CHANNEL_COLORS = { zalo:'#0068ff', messenger:'#00b2ff', instagram:'#e1306c' }
+
+  const CHANNEL_COLORS  = { zalo: '#0068ff', messenger: '#00b2ff', instagram: '#e1306c', website: '#c9a96e', email: '#10b981' }
+  const CHANNEL_LABELS  = { zalo: 'Zalo', messenger: 'Messenger', instagram: 'Instagram', website: 'Chat Widget', email: 'Email' }
+  const CHANNELS        = ['all', 'website', 'messenger', 'instagram', 'email', 'zalo']
+  const FOLDERS         = ['all', 'inquiries', 'feedback']
+  const FOLDER_LABELS   = { all: 'All', inquiries: 'General Inquiries', feedback: 'Feedback' }
+  const FOLDER_ICONS    = { all: '📨', inquiries: '💬', feedback: '📝' }
+
+  const filtered = conversations.filter(c => {
+    const chMatch     = channel === 'all' || c.channel === channel
+    const folderMatch = folder  === 'all' || c.folder  === folder || (folder === 'inquiries' && !c.folder)
+    return chMatch && folderMatch
+  })
+
+  const tabStyle = (active) => ({
+    padding: '6px 12px', borderRadius: 8, border: 'none', cursor: 'pointer',
+    fontWeight: 700, fontSize: 12,
+    background: active ? '#0f172a' : '#f1f5f9',
+    color: active ? '#fff' : '#64748b',
+  })
 
   return (
-    <div style={{ display:'flex', height:'100%', overflow:'hidden' }}>
-      <div style={{ width:300, borderRight:'1px solid #e2e8f0', display:'flex', flexDirection:'column', background:'#fff' }}>
-        <div style={{ padding:'16px 20px', borderBottom:'1px solid #e2e8f0', display:'flex', justifyContent:'space-between', alignItems:'center' }}>
-          <div style={{ fontWeight:900, fontSize:16 }}>Inbox</div>
-          <button onClick={seedTest} style={{ fontSize:11, padding:'5px 10px', borderRadius:8, border:'1px solid #e2e8f0', background:'#f8fafc', cursor:'pointer', fontWeight:700, color:'#64748b' }}>+ Test</button>
-        </div>
-        <div style={{ flex:1, overflowY:'auto' }}>
-          {conversations.length === 0 && (
-            <div style={{ padding:24, textAlign:'center', color:'#94a3b8', fontSize:13 }}>No messages yet.</div>
+    <div style={{ display: 'flex', height: '100%', overflow: 'hidden' }}>
+      {/* Sidebar */}
+      <div style={{ width: 300, borderRight: '1px solid #e2e8f0', display: 'flex', flexDirection: 'column', background: '#fff' }}>
+        <div style={{ padding: '14px 16px', borderBottom: '1px solid #e2e8f0' }}>
+          <div style={{ fontWeight: 900, fontSize: 15, marginBottom: 10 }}>Inbox</div>
+
+          {/* Channel tabs */}
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 8 }}>
+            {CHANNELS.map(ch => (
+              <button key={ch} style={tabStyle(channel === ch)} onClick={() => setChannel(ch)}>
+                {ch === 'all' ? 'All' : CHANNEL_LABELS[ch] || ch}
+              </button>
+            ))}
+          </div>
+
+          {/* Folder tabs — only show for website channel */}
+          {(channel === 'all' || channel === 'website') && (
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+              {FOLDERS.map(f => (
+                <button key={f} style={tabStyle(folder === f)} onClick={() => setFolder(f)}>
+                  {FOLDER_ICONS[f]} {FOLDER_LABELS[f]}
+                </button>
+              ))}
+            </div>
           )}
-          {conversations.map(c => (
-            <div key={c.id} onClick={() => setActiveConv(c)} style={{ padding:'14px 20px', cursor:'pointer', borderBottom:'1px solid #f1f5f9', background: activeConv?.id===c.id ? '#f0f7ff' : '#fff' }}>
-              <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:4 }}>
-                <div style={{ fontWeight:800, fontSize:14 }}>{c.customer_name || 'Unknown'}</div>
-                <div style={{ fontSize:10, fontWeight:800, padding:'2px 8px', borderRadius:10, background: CHANNEL_COLORS[c.channel]||'#64748b', color:'#fff' }}>{c.channel}</div>
+        </div>
+
+        <div style={{ flex: 1, overflowY: 'auto' }}>
+          {filtered.length === 0 && (
+            <div style={{ padding: 24, textAlign: 'center', color: '#94a3b8', fontSize: 13 }}>No messages yet.</div>
+          )}
+          {filtered.map(c => (
+            <div key={c.id} onClick={() => setActiveConv(c)}
+              style={{ padding: '12px 16px', cursor: 'pointer', borderBottom: '1px solid #f1f5f9', background: activeConv?.id === c.id ? '#f0f7ff' : '#fff' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 3 }}>
+                <div style={{ fontWeight: 800, fontSize: 13 }}>{c.customer_name || 'Unknown'}</div>
+                <div style={{ fontSize: 10, fontWeight: 800, padding: '2px 7px', borderRadius: 8, background: CHANNEL_COLORS[c.channel] || '#64748b', color: '#fff' }}>
+                  {CHANNEL_LABELS[c.channel] || c.channel}
+                </div>
               </div>
-              <div style={{ fontSize:12, color:'#64748b', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>{c.last_message||'—'}</div>
-              <div style={{ fontSize:11, color:'#94a3b8', marginTop:4 }}>
-                {c.last_message_at ? new Date(c.last_message_at).toLocaleString('en-GB', { day:'numeric', month:'short', hour:'2-digit', minute:'2-digit' }) : ''}
+              {c.folder && c.folder !== 'inquiries' && (
+                <div style={{ fontSize: 10, color: '#c9a96e', fontWeight: 700, marginBottom: 2 }}>
+                  {FOLDER_ICONS[c.folder]} {FOLDER_LABELS[c.folder]}
+                </div>
+              )}
+              <div style={{ fontSize: 12, color: '#64748b', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{c.last_message || '—'}</div>
+              <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 3 }}>
+                {c.last_message_at ? new Date(c.last_message_at).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : ''}
               </div>
             </div>
           ))}
         </div>
       </div>
-      <div style={{ flex:1, display:'flex', flexDirection:'column', background:'#f8fafc' }}>
+
+      {/* Conversation pane */}
+      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', background: '#f8fafc' }}>
         {!activeConv ? (
-          <div style={{ flex:1, display:'flex', alignItems:'center', justifyContent:'center', flexDirection:'column', gap:12, color:'#94a3b8' }}>
-            <div style={{ fontSize:36 }}>💬</div>
-            <div style={{ fontSize:14, fontWeight:700 }}>Select a conversation</div>
+          <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: 12, color: '#94a3b8' }}>
+            <div style={{ fontSize: 36 }}>💬</div>
+            <div style={{ fontSize: 14, fontWeight: 700 }}>Select a conversation</div>
           </div>
         ) : (
           <>
-            <div style={{ padding:'14px 20px', background:'#fff', borderBottom:'1px solid #e2e8f0', display:'flex', alignItems:'center', gap:12 }}>
-              <div style={{ fontWeight:900, fontSize:15 }}>{activeConv.customer_name}</div>
-              {activeConv.customer_phone && <div style={{ fontSize:12, color:'#64748b' }}>{activeConv.customer_phone}</div>}
-              <div style={{ fontSize:11, fontWeight:800, padding:'2px 10px', borderRadius:10, background: CHANNEL_COLORS[activeConv.channel]||'#64748b', color:'#fff', marginLeft:'auto' }}>{activeConv.channel}</div>
+            <div style={{ padding: '12px 20px', background: '#fff', borderBottom: '1px solid #e2e8f0', display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+              <div style={{ fontWeight: 900, fontSize: 15 }}>{activeConv.customer_name}</div>
+              {activeConv.customer_phone && <div style={{ fontSize: 12, color: '#64748b' }}>{activeConv.customer_phone}</div>}
+              <div style={{ fontSize: 11, fontWeight: 800, padding: '2px 10px', borderRadius: 10, background: CHANNEL_COLORS[activeConv.channel] || '#64748b', color: '#fff' }}>
+                {CHANNEL_LABELS[activeConv.channel] || activeConv.channel}
+              </div>
+              {/* Move folder button — only for website conversations */}
+              {activeConv.channel === 'website' && (
+                <div style={{ marginLeft: 'auto', display: 'flex', gap: 6 }}>
+                  {FOLDERS.filter(f => f !== 'all' && f !== activeConv.folder).map(f => (
+                    <button key={f} onClick={() => moveFolder(activeConv.id, f)}
+                      style={{ fontSize: 11, padding: '4px 10px', borderRadius: 8, border: '1px solid #e2e8f0', background: '#f8fafc', cursor: 'pointer', fontWeight: 700, color: '#64748b' }}>
+                      Move to {FOLDER_LABELS[f]}
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
-            <div style={{ flex:1, overflowY:'auto', padding:20, display:'flex', flexDirection:'column', gap:10 }}>
+
+            <div style={{ flex: 1, overflowY: 'auto', padding: 20, display: 'flex', flexDirection: 'column', gap: 10 }}>
               {messages.map(m => (
-                <div key={m.id} style={{ display:'flex', justifyContent: m.sender_type==='staff' ? 'flex-end' : 'flex-start' }}>
-                  <div style={{ maxWidth:'70%', padding:'10px 14px', borderRadius:14,
-                    background: m.sender_type==='staff' ? '#0f172a' : '#fff',
-                    color: m.sender_type==='staff' ? '#fff' : '#0f172a',
-                    fontSize:13, boxShadow:'0 1px 4px rgba(0,0,0,0.07)',
-                    borderBottomRightRadius: m.sender_type==='staff' ? 4 : 14,
-                    borderBottomLeftRadius:  m.sender_type==='staff' ? 14 : 4 }}>
-                    {m.body}
-                    <div style={{ fontSize:10, opacity:0.5, marginTop:4, textAlign: m.sender_type==='staff' ? 'right' : 'left' }}>
-                      {new Date(m.created_at).toLocaleTimeString('en-GB', { hour:'2-digit', minute:'2-digit' })}
+                <div key={m.id} style={{ display: 'flex', justifyContent: m.sender_type === 'staff' ? 'flex-end' : 'flex-start' }}>
+                  <div style={{
+                    maxWidth: '70%', padding: '10px 14px', borderRadius: 14,
+                    background: m.sender_type === 'staff' ? '#0f172a' : '#fff',
+                    color: m.sender_type === 'staff' ? '#fff' : '#0f172a',
+                    fontSize: 13, boxShadow: '0 1px 4px rgba(0,0,0,0.07)',
+                    borderBottomRightRadius: m.sender_type === 'staff' ? 4 : 14,
+                    borderBottomLeftRadius:  m.sender_type === 'staff' ? 14 : 4,
+                  }}>
+                    {m.body?.startsWith('[Photo] ') ? (
+                      <a href={m.body.replace('[Photo] ', '')} target="_blank" rel="noreferrer"
+                        style={{ color: m.sender_type === 'staff' ? '#c9a96e' : '#0068ff', fontSize: 13 }}>
+                        📷 View attached photo
+                      </a>
+                    ) : m.body}
+                    <div style={{ fontSize: 10, opacity: 0.5, marginTop: 4, textAlign: m.sender_type === 'staff' ? 'right' : 'left' }}>
+                      {new Date(m.created_at).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}
                     </div>
                   </div>
                 </div>
               ))}
               <div ref={bottomRef} />
             </div>
-            <div style={{ padding:16, background:'#fff', borderTop:'1px solid #e2e8f0', display:'flex', gap:10 }}>
-              <input style={{ flex:1, padding:'11px 14px', borderRadius:12, border:'1px solid #e2e8f0', fontSize:13, outline:'none', fontFamily:'inherit' }}
-                placeholder="Type a reply…" value={reply}
+
+            <div style={{ padding: 16, background: '#fff', borderTop: '1px solid #e2e8f0', display: 'flex', gap: 10 }}>
+              <input
+                style={{ flex: 1, padding: '11px 14px', borderRadius: 12, border: '1px solid #e2e8f0', fontSize: 13, outline: 'none', fontFamily: 'inherit' }}
+                placeholder="Type a reply..." value={reply}
                 onChange={e => setReply(e.target.value)}
-                onKeyDown={e => e.key==='Enter' && sendReply()} />
+                onKeyDown={e => e.key === 'Enter' && sendReply()} />
               <button onClick={sendReply} disabled={loading}
-                style={{ padding:'11px 20px', borderRadius:12, border:'none', background:'#0f172a', color:'#fff', fontWeight:800, cursor:'pointer', fontSize:13 }}>Send</button>
+                style={{ padding: '11px 20px', borderRadius: 12, border: 'none', background: '#0f172a', color: '#fff', fontWeight: 800, cursor: 'pointer', fontSize: 13 }}>
+                Send
+              </button>
             </div>
           </>
         )}
@@ -696,8 +767,9 @@ await axios.put(API + '/api/bookings/' + editingId, {
         {/* Nav */}
         <div style={{ padding:'0 10px', marginBottom:8 }}>
           {[
-            { id:'calendar', icon:'📅', label:'Calendar' },
-            { id:'inbox',    icon:'💬', label:'Inbox' },
+            { id:'calendar',  icon:'📅', label:'Calendar'  },
+            { id:'inbox',     icon:'💬', label:'Inbox'     },
+            { id:'analytics', icon:'📊', label:'Analytics' },
           ].map(n => (
             <button key={n.id} onClick={() => setView(n.id)}
               style={{ width:'100%', textAlign:'left', padding:'9px 12px', borderRadius:10, border:'none',
@@ -797,6 +869,7 @@ await axios.put(API + '/api/bookings/' + editingId, {
           </div>
         )}
         {view === 'inbox' && <InboxView />}
+        {view === 'analytics' && <Analytics />}
       </div>
 
       {/* ── Modals ── */}
