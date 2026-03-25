@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import Analytics from './Analytics'
 import FullCalendar from '@fullcalendar/react'
 import resourceTimeGridPlugin from '@fullcalendar/resource-timegrid'
 import dayGridPlugin from '@fullcalendar/daygrid'
