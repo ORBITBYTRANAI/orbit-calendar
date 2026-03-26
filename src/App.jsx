@@ -50,30 +50,26 @@ function Modal({ title, onClose, children, width }) {
 }
 
 // Checkout Modal 
-function CheckoutModal({ booking, services, onClose, onComplete }) {
+function CheckoutModal({ booking, services, onClose, onComplete, receiptData }) {
  const selectedSvcs = booking.service_ids?.length
  ? booking.service_ids.map(id => services.find(s => s.id === id)).filter(Boolean)
  : (booking.service_id ? [services.find(s => s.id === booking.service_id)].filter(Boolean) : [])
  const svc = selectedSvcs[0] || services.find(s => s.id === booking.service_id)
  const defaultTotal = parseFloat(selectedSvcs.reduce((sum, s) => sum + parseFloat(s?.price || 0), 0).toFixed(2)) || parseFloat(svc?.price || 0)
 
- const [total, setTotal] = useState(defaultTotal)
- const [splits, setSplits] = useState([{ method: 'Cash', amount: defaultTotal }])
- const [notes, setNotes] = useState('')
- const [loading, setLoading] = useState(false)
- const [done, setDone] = useState(false)
+ // Initialise synchronously from pre-fetched receiptData so receipt shows with no flash
+ const initDone   = booking.status === 'completed'
+ const initTotal  = receiptData?.total_amount ?? defaultTotal
+ const initSplits = (Array.isArray(receiptData?.payments) && receiptData.payments.length)
+   ? receiptData.payments
+   : [{ method: 'Cash', amount: defaultTotal }]
+ const initNotes  = receiptData?.notes || ''
 
- // If booking is already completed, fetch checkout data and show receipt immediately
- useEffect(() => {
- if (booking.status !== 'completed') return
- axios.get(API + '/api/checkouts/' + booking.id).then(res => {
- const c = res.data
- if (c.total_amount != null) setTotal(c.total_amount)
- if (Array.isArray(c.payments) && c.payments.length) setSplits(c.payments)
- if (c.notes) setNotes(c.notes)
- setDone(true)
- }).catch(() => { setDone(true) })
- }, [booking.id, booking.status])
+ const [total, setTotal] = useState(initTotal)
+ const [splits, setSplits] = useState(initSplits)
+ const [notes, setNotes] = useState(initNotes)
+ const [loading, setLoading] = useState(false)
+ const [done, setDone] = useState(initDone)
 
  const splitTotal = splits.reduce((s, p) => s + (parseFloat(p.amount) || 0), 0)
  const remaining = parseFloat((total - splitTotal).toFixed(2))
@@ -502,6 +498,7 @@ export default function App() {
  const [newSvc, setNewSvc] = useState({ name:'', duration_minutes:60, price:'', category:'Nail Enhancements' })
  const [showCheckout, setShowCheckout] = useState(false)
  const [checkoutBooking, setCheckoutBooking] = useState(null)
+ const [checkoutReceiptData, setCheckoutReceiptData] = useState(null)
  const [openingHours, setOpeningHours] = useState(DEFAULT_HOURS)
  const [hoursLoaded, setHoursLoaded] = useState(false)
  const [svcSearch, setSvcSearch] = useState('')
@@ -594,12 +591,18 @@ export default function App() {
  setShowBooking(true)
  }
 
- function openEdit(info) {
+ async function openEdit(info) {
  const b = info.event.extendedProps
  const status = b.status || info.event.extendedProps?.status
  if (status === 'completed') {
- // Always show receipt for completed bookings - find full booking data
+ // Fetch receipt data BEFORE opening modal so it renders in receipt view immediately
  const fullBooking = bookings.find(bk => bk.id === info.event.id) || b
+ let receiptData = null
+ try {
+ const res = await axios.get(API + '/api/checkouts/' + info.event.id)
+ receiptData = res.data
+ } catch (_) {}
+ setCheckoutReceiptData(receiptData)
  setCheckoutBooking(fullBooking)
  setShowCheckout(true)
  return
@@ -915,10 +918,11 @@ await axios.put(API + '/api/bookings/' + editingId, {
  <CheckoutModal
  booking={checkoutBooking}
  services={services}
- onClose={() => { setShowCheckout(false); setCheckoutBooking(null) }}
+ receiptData={checkoutReceiptData}
+ onClose={() => { setShowCheckout(false); setCheckoutBooking(null); setCheckoutReceiptData(null) }}
  onComplete={(id, closeModal = true) => {
  setBookings(prev => prev.map(b => b.id !== id ? b : { ...b, status:'completed' }))
- if (closeModal) { setShowCheckout(false); setCheckoutBooking(null) }
+ if (closeModal) { setShowCheckout(false); setCheckoutBooking(null); setCheckoutReceiptData(null) }
  }}
  />
  )}
