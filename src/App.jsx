@@ -477,7 +477,186 @@ function InboxView() {
  )
 }
 
-// Main App 
+// Client Detail View
+function ClientDetail({ client, loading, onBack }) {
+ if (loading || !client.bookings) {
+ return (
+ <div style={{ padding:24, flex:1, overflowY:'auto' }}>
+ <button onClick={onBack} style={{ background:'none', border:'none', color:'#64748b', fontWeight:700, fontSize:14, cursor:'pointer', marginBottom:16, padding:0 }}>← Back to Clients</button>
+ <div style={{ color:'#94a3b8', fontSize:14 }}>Loading...</div>
+ </div>
+ )
+ }
+ const stats = [
+ { label:'Total Visits', value: client.total_visits || 0 },
+ { label:'Total Spend', value: client.total_spend > 0 ? `£${(client.total_spend||0).toFixed(2)}` : '—' },
+ { label:'Last Visit', value: client.last_visit ? new Date(client.last_visit).toLocaleDateString('en-GB', { day:'numeric', month:'short', year:'numeric' }) : '—' },
+ { label:'Member Since', value: new Date(client.created_at).toLocaleDateString('en-GB', { month:'short', year:'numeric' }) },
+ ]
+ return (
+ <div style={{ padding:24, flex:1, overflowY:'auto' }}>
+ <button onClick={onBack} style={{ background:'none', border:'none', color:'#64748b', fontWeight:700, fontSize:14, cursor:'pointer', marginBottom:16, padding:0 }}>← Back to Clients</button>
+ <div style={{ display:'flex', alignItems:'center', gap:16, marginBottom:24 }}>
+ <div style={{ width:52, height:52, borderRadius:'50%', background:'#0f172a', color:'#fff', display:'flex', alignItems:'center', justifyContent:'center', fontSize:20, fontWeight:900, flexShrink:0 }}>
+ {client.full_name?.[0]?.toUpperCase()}
+ </div>
+ <div>
+ <div style={{ fontSize:22, fontWeight:900, color:'#0f172a' }}>{client.full_name}</div>
+ <div style={{ fontSize:13, color:'#64748b', marginTop:2 }}>{[client.phone, client.email].filter(Boolean).join(' · ')}</div>
+ </div>
+ </div>
+ <div style={{ display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:12, marginBottom:28 }}>
+ {stats.map(s => (
+ <div key={s.label} style={{ background:'#fff', borderRadius:12, padding:'16px 18px', border:'1px solid #e2e8f0' }}>
+ <div style={{ fontSize:11, fontWeight:800, color:'#64748b', textTransform:'uppercase', letterSpacing:0.8, marginBottom:6 }}>{s.label}</div>
+ <div style={{ fontSize:22, fontWeight:900, color:'#0f172a' }}>{s.value}</div>
+ </div>
+ ))}
+ </div>
+ <div style={{ display:'grid', gridTemplateColumns:'1fr 300px', gap:20 }}>
+ <div>
+ <div style={{ fontSize:13, fontWeight:800, color:'#0f172a', marginBottom:12 }}>Booking History</div>
+ <div style={{ background:'#fff', borderRadius:14, border:'1px solid #e2e8f0', overflow:'hidden' }}>
+ <table style={{ width:'100%', borderCollapse:'collapse' }}>
+ <thead>
+ <tr style={{ background:'#f8fafc', borderBottom:'1px solid #e2e8f0' }}>
+ {['Date','Service','Technician','Status','Paid'].map(h => (
+ <th key={h} style={{ padding:'10px 14px', textAlign:'left', fontSize:11, fontWeight:800, color:'#64748b', textTransform:'uppercase', letterSpacing:0.8 }}>{h}</th>
+ ))}
+ </tr>
+ </thead>
+ <tbody>
+ {(client.bookings||[]).map((b,i) => {
+ const co = Array.isArray(b.checkouts) ? b.checkouts[0] : b.checkouts
+ return (
+ <tr key={b.id} style={{ borderBottom: i < client.bookings.length-1 ? '1px solid #f1f5f9' : 'none' }}>
+ <td style={{ padding:'11px 14px', fontSize:13, color:'#475569' }}>
+ {new Date(b.start_time).toLocaleDateString('en-GB', { weekday:'short', day:'numeric', month:'short' })}
+ </td>
+ <td style={{ padding:'11px 14px', fontSize:13, fontWeight:600 }}>{b.services?.name||'—'}</td>
+ <td style={{ padding:'11px 14px', fontSize:13, color:'#475569' }}>{b.technicians?.name||'—'}</td>
+ <td style={{ padding:'11px 14px' }}>
+ <span style={{ fontSize:11, fontWeight:800, padding:'3px 8px', borderRadius:6,
+ background: b.status==='completed' ? '#f0fdf4' : '#fef9c3',
+ color: b.status==='completed' ? '#059669' : '#854d0e' }}>{b.status}</span>
+ </td>
+ <td style={{ padding:'11px 14px', fontSize:13, fontWeight:700, color: co?.total_amount ? '#059669' : '#94a3b8' }}>
+ {co?.total_amount ? `£${parseFloat(co.total_amount).toFixed(2)}` : '—'}
+ </td>
+ </tr>
+ )
+ })}
+ {!client.bookings?.length && (
+ <tr><td colSpan={5} style={{ padding:'32px 14px', textAlign:'center', color:'#94a3b8', fontSize:13 }}>No bookings yet.</td></tr>
+ )}
+ </tbody>
+ </table>
+ </div>
+ </div>
+ <div>
+ <div style={{ fontSize:13, fontWeight:800, color:'#0f172a', marginBottom:12 }}>Favourite Services</div>
+ <div style={{ background:'#fff', borderRadius:14, border:'1px solid #e2e8f0', padding:16 }}>
+ {(client.top_services||[]).length > 0 ? client.top_services.map((s,i) => (
+ <div key={s.name} style={{ display:'flex', justifyContent:'space-between', alignItems:'center', padding:'8px 0', borderBottom: i < client.top_services.length-1 ? '1px solid #f1f5f9' : 'none' }}>
+ <span style={{ fontSize:13, fontWeight:600 }}>{s.name}</span>
+ <span style={{ fontSize:12, color:'#64748b', fontWeight:700 }}>{s.count}×</span>
+ </div>
+ )) : (
+ <div style={{ color:'#94a3b8', fontSize:13, textAlign:'center', padding:'20px 0' }}>No services yet.</div>
+ )}
+ </div>
+ </div>
+ </div>
+ </div>
+ )
+}
+
+// Clients List View
+function ClientsView() {
+ const [clients, setClients] = useState([])
+ const [search, setSearch] = useState('')
+ const [loading, setLoading] = useState(true)
+ const [selected, setSelected] = useState(null)
+ const [detail, setDetail] = useState(null)
+ const [detailLoading, setDetailLoading] = useState(false)
+
+ useEffect(() => { loadClients() }, [search])
+
+ async function loadClients() {
+ setLoading(true)
+ try {
+ const params = search ? `?search=${encodeURIComponent(search)}` : ''
+ const res = await axios.get(API + '/api/customers' + params)
+ setClients(res.data)
+ } catch (err) { console.error(err) }
+ setLoading(false)
+ }
+
+ async function openDetail(client) {
+ setSelected(client)
+ setDetailLoading(true)
+ try {
+ const res = await axios.get(API + '/api/customers/' + client.id)
+ setDetail(res.data)
+ } catch (err) { console.error(err) }
+ setDetailLoading(false)
+ }
+
+ if (selected) {
+ return <ClientDetail client={detail || selected} loading={detailLoading} onBack={() => { setSelected(null); setDetail(null) }} />
+ }
+
+ return (
+ <div style={{ padding:24, flex:1, overflowY:'auto' }}>
+ <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:20 }}>
+ <h1 style={{ fontSize:20, fontWeight:900, color:'#0f172a', margin:0 }}>Clients</h1>
+ <input style={{ ...inp, width:280 }} placeholder="Search name, phone or email…"
+ value={search} onChange={e => setSearch(e.target.value)} />
+ </div>
+ {loading ? (
+ <div style={{ color:'#94a3b8', fontSize:14 }}>Loading…</div>
+ ) : (
+ <div style={{ background:'#fff', borderRadius:14, border:'1px solid #e2e8f0', overflow:'hidden' }}>
+ <table style={{ width:'100%', borderCollapse:'collapse' }}>
+ <thead>
+ <tr style={{ background:'#f8fafc', borderBottom:'1px solid #e2e8f0' }}>
+ {['Name','Phone','Email','Visits','Last Visit','Total Spend'].map(h => (
+ <th key={h} style={{ padding:'10px 16px', textAlign:'left', fontSize:11, fontWeight:800, color:'#64748b', textTransform:'uppercase', letterSpacing:0.8 }}>{h}</th>
+ ))}
+ </tr>
+ </thead>
+ <tbody>
+ {clients.map((c,i) => (
+ <tr key={c.id} onClick={() => openDetail(c)}
+ style={{ borderBottom: i < clients.length-1 ? '1px solid #f1f5f9' : 'none', cursor:'pointer', background:'#fff' }}
+ onMouseEnter={e => e.currentTarget.style.background='#f8fafc'}
+ onMouseLeave={e => e.currentTarget.style.background='#fff'}>
+ <td style={{ padding:'12px 16px', fontWeight:700, fontSize:14, color:'#0f172a' }}>{c.full_name}</td>
+ <td style={{ padding:'12px 16px', fontSize:13, color:'#475569' }}>{c.phone||'—'}</td>
+ <td style={{ padding:'12px 16px', fontSize:13, color:'#475569' }}>{c.email||'—'}</td>
+ <td style={{ padding:'12px 16px', fontSize:13, fontWeight:700, color:'#0f172a' }}>{c.total_visits}</td>
+ <td style={{ padding:'12px 16px', fontSize:13, color:'#475569' }}>
+ {c.last_visit ? new Date(c.last_visit).toLocaleDateString('en-GB', { day:'numeric', month:'short', year:'numeric' }) : '—'}
+ </td>
+ <td style={{ padding:'12px 16px', fontSize:13, fontWeight:700, color:'#059669' }}>
+ {c.total_spend > 0 ? `£${c.total_spend.toFixed(2)}` : '—'}
+ </td>
+ </tr>
+ ))}
+ {clients.length === 0 && (
+ <tr><td colSpan={6} style={{ padding:'40px 16px', textAlign:'center', color:'#94a3b8', fontSize:14 }}>
+ {search ? 'No clients found matching your search.' : 'No clients yet.'}
+ </td></tr>
+ )}
+ </tbody>
+ </table>
+ </div>
+ )}
+ </div>
+ )
+}
+
+// Main App
 export default function App() {
  const calRef = useRef(null)
 
@@ -804,6 +983,7 @@ await axios.put(API + '/api/bookings/' + editingId, {
  <div style={{ padding:'0 10px', marginBottom:8 }}>
  {[
  { id:'calendar', icon:'', label:'Calendar' },
+ { id:'clients', icon:'', label:'Clients' },
  { id:'inbox', icon:'', label:'Inbox' },
  { id:'analytics', icon:'', label:'Analytics' },
  ].map(n => (
@@ -904,6 +1084,7 @@ await axios.put(API + '/api/bookings/' + editingId, {
  />
  </div>
  )}
+ {view === 'clients' && <ClientsView />}
  {view === 'inbox' && <InboxView />}
  {view === 'analytics' && <Analytics />}
  </div>
