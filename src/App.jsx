@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import Analytics from './Analytics'
 import FullCalendar from '@fullcalendar/react'
 import resourceTimeGridPlugin from '@fullcalendar/resource-timegrid'
 import dayGridPlugin from '@fullcalendar/daygrid'
@@ -61,6 +62,18 @@ function CheckoutModal({ booking, services, onClose, onComplete }) {
  const [notes, setNotes] = useState('')
  const [loading, setLoading] = useState(false)
  const [done, setDone] = useState(false)
+
+ // If booking is already completed, fetch checkout data and show receipt immediately
+ useEffect(() => {
+ if (booking.status !== 'completed') return
+ axios.get(API + '/api/checkouts/' + booking.id).then(res => {
+ const c = res.data
+ if (c.total_amount != null) setTotal(c.total_amount)
+ if (Array.isArray(c.payments) && c.payments.length) setSplits(c.payments)
+ if (c.notes) setNotes(c.notes)
+ setDone(true)
+ }).catch(() => { setDone(true) })
+ }, [booking.id, booking.status])
 
  const splitTotal = splits.reduce((s, p) => s + (parseFloat(p.amount) || 0), 0)
  const remaining = parseFloat((total - splitTotal).toFixed(2))

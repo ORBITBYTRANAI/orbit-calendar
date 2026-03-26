@@ -64,7 +64,8 @@ export default function Analytics() {
       setServices(sRes.data)
       setLoading(false)
     }).catch(() => setLoading(false))
-  }, [range, from, to, getRangeDates])
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [range, from, to])
 
   // ── Derived stats ──────────────────────────────────────────────────────────
 
