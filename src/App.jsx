@@ -16,7 +16,11 @@ const CATEGORIES = [
  { label: 'Beauty', color: '#d8b4fe' },
 ]
 const CATEGORY_COLOR = Object.fromEntries(CATEGORIES.map(c => [c.label, c.color]))
-const PAYMENT_METHODS = ['Cash', 'Chuyển Khoản', 'Terminal', 'Gift Card']
+function getPaymentMethods(country) {
+ return country === 'UK'
+   ? ['Cash', 'Card', 'Stripe Deposit', 'Gift Card']
+   : ['Cash', 'Chuyển Khoản', 'Terminal', 'Gift Card']
+}
 const DAYS = ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday']
 
 const DEFAULT_HOURS = DAYS.map((d, i) => ({
@@ -50,7 +54,7 @@ function Modal({ title, onClose, children, width }) {
 }
 
 // Checkout Modal 
-function CheckoutModal({ booking, services, onClose, onComplete, receiptData }) {
+function CheckoutModal({ booking, services, onClose, onComplete, receiptData, country }) {
  const selectedSvcs = booking.service_ids?.length
  ? booking.service_ids.map(id => services.find(s => s.id === id)).filter(Boolean)
  : (booking.service_id ? [services.find(s => s.id === booking.service_id)].filter(Boolean) : [])
@@ -217,7 +221,7 @@ function CheckoutModal({ booking, services, onClose, onComplete, receiptData }) 
  {splits.map((split, i) => (
  <div key={i} style={{ display:'flex', gap:8, marginBottom:8, alignItems:'center' }}>
  <select style={{ ...inp, flex:'0 0 160px', width:'auto' }} value={split.method} onChange={e => updateSplit(i, 'method', e.target.value)}>
- {PAYMENT_METHODS.map(m => <option key={m}>{m}</option>)}
+ {getPaymentMethods(country).map(m => <option key={m}>{m}</option>)}
  </select>
  <input style={{ ...inp, flex:1, width:'auto' }} type="number" min="0" step="0.01"
  value={split.amount} onChange={e => updateSplit(i, 'amount', e.target.value)} placeholder="Amount" />
@@ -293,7 +297,7 @@ function OpeningHoursModal({ hours, onSave, onClose }) {
 }
 
 // Inbox View 
-function InboxView() {
+function InboxView({ country }) {
  const [conversations, setConversations] = useState([])
  const [activeConv, setActiveConv] = useState(null)
  const [messages, setMessages] = useState([])
@@ -333,7 +337,9 @@ function InboxView() {
 
  const CHANNEL_COLORS = { zalo: '#0068ff', messenger: '#00b2ff', instagram: '#e1306c', website: '#c9a96e', email: '#10b981' }
  const CHANNEL_LABELS = { zalo: 'Zalo', messenger: 'Messenger', instagram: 'Instagram', website: 'Chat Widget', email: 'Email' }
- const CHANNELS = ['all', 'website', 'messenger', 'instagram', 'email', 'zalo']
+ const CHANNELS = country === 'UK'
+   ? ['all', 'website', 'messenger', 'instagram', 'email']
+   : ['all', 'website', 'messenger', 'instagram', 'email', 'zalo']
  const FOLDERS = ['all', 'inquiries', 'feedback']
  const FOLDER_LABELS = { all: 'All', inquiries: 'General Inquiries', feedback: 'Feedback' }
  const FOLDER_ICONS = { all: '', inquiries: '', feedback: '' }
@@ -656,8 +662,119 @@ function ClientsView() {
  )
 }
 
-// Main App
-export default function App() {
+// Login Page
+function LoginPage({ onLogin }) {
+ const [email, setEmail] = useState('')
+ const [password, setPassword] = useState('')
+ const [error, setError] = useState('')
+ const [loading, setLoading] = useState(false)
+
+ async function handleSubmit(e) {
+   e.preventDefault()
+   setError('')
+   setLoading(true)
+   try {
+     const { data } = await axios.post(API + '/api/auth/login', { email, password })
+     onLogin(data.session.access_token, data.salon)
+   } catch (err) {
+     setError(err.response?.data?.error || 'Login failed. Check your email and password.')
+   }
+   setLoading(false)
+ }
+
+ return (
+   <div style={{ minHeight:'100vh', background:'#f8fafc', display:'flex', alignItems:'center', justifyContent:'center', fontFamily:'ui-sans-serif, system-ui, sans-serif' }}>
+     <div style={{ background:'#fff', borderRadius:20, padding:40, width:380, boxShadow:'0 20px 60px rgba(0,0,0,0.12)' }}>
+       <div style={{ marginBottom:28, textAlign:'center' }}>
+         <div style={{ fontSize:28, fontWeight:900, color:'#0f172a' }}>Orbit</div>
+         <div style={{ fontSize:13, color:'#64748b', marginTop:4, fontWeight:600 }}>Salon OS — Sign in to your salon</div>
+       </div>
+       <form onSubmit={handleSubmit}>
+         <label style={lbl}>Email</label>
+         <input style={inp} type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="you@example.com" required />
+         <label style={lbl}>Password</label>
+         <input style={inp} type="password" value={password} onChange={e => setPassword(e.target.value)} placeholder="••••••••" required />
+         {error && <div style={{ marginTop:12, padding:'9px 12px', background:'#fef2f2', borderRadius:8, color:'#ef4444', fontSize:13, fontWeight:600 }}>{error}</div>}
+         <button type="submit" disabled={loading} style={{ ...btnPrimary, width:'100%', marginTop:20, opacity: loading ? 0.7 : 1 }}>
+           {loading ? 'Signing in…' : 'Sign In'}
+         </button>
+       </form>
+       <div style={{ marginTop:16, textAlign:'center', fontSize:13, color:'#64748b' }}>
+         No account? <button onClick={() => onLogin(null, null, 'signup')} style={{ background:'none', border:'none', color:'#3b82f6', fontWeight:700, cursor:'pointer', fontSize:13, padding:0 }}>Create one</button>
+       </div>
+     </div>
+   </div>
+ )
+}
+
+// Signup Page
+function SignupPage({ onLogin, onBack }) {
+ const [form, setForm] = useState({ email:'', password:'', confirm:'', salon_name:'', address:'', country:'UK' })
+ const [error, setError] = useState('')
+ const [loading, setLoading] = useState(false)
+
+ async function handleSubmit(e) {
+   e.preventDefault()
+   setError('')
+   if (form.password !== form.confirm) { setError('Passwords do not match.'); return }
+   if (form.password.length < 6) { setError('Password must be at least 6 characters.'); return }
+   setLoading(true)
+   try {
+     const { data } = await axios.post(API + '/api/auth/signup', {
+       email: form.email, password: form.password,
+       salon_name: form.salon_name, address: form.address, country: form.country
+     })
+     if (data.session) {
+       onLogin(data.session.access_token, data.salon)
+     } else {
+       setError('Account created! Please check your email to confirm before signing in.')
+     }
+   } catch (err) {
+     setError(err.response?.data?.error || 'Signup failed.')
+   }
+   setLoading(false)
+ }
+
+ const f = (field) => ({ value: form[field], onChange: e => setForm({ ...form, [field]: e.target.value }) })
+
+ return (
+   <div style={{ minHeight:'100vh', background:'#f8fafc', display:'flex', alignItems:'center', justifyContent:'center', fontFamily:'ui-sans-serif, system-ui, sans-serif' }}>
+     <div style={{ background:'#fff', borderRadius:20, padding:40, width:420, boxShadow:'0 20px 60px rgba(0,0,0,0.12)', maxHeight:'95vh', overflowY:'auto' }}>
+       <div style={{ marginBottom:24, textAlign:'center' }}>
+         <div style={{ fontSize:28, fontWeight:900, color:'#0f172a' }}>Orbit</div>
+         <div style={{ fontSize:13, color:'#64748b', marginTop:4, fontWeight:600 }}>Create your salon account</div>
+       </div>
+       <form onSubmit={handleSubmit}>
+         <label style={lbl}>Email</label>
+         <input style={inp} type="email" {...f('email')} placeholder="you@example.com" required />
+         <label style={lbl}>Password</label>
+         <input style={inp} type="password" {...f('password')} placeholder="Min. 6 characters" required />
+         <label style={lbl}>Confirm Password</label>
+         <input style={inp} type="password" {...f('confirm')} placeholder="Repeat password" required />
+         <label style={lbl}>Salon Name</label>
+         <input style={inp} {...f('salon_name')} placeholder="e.g. Orbit Nails" required />
+         <label style={lbl}>Address (optional)</label>
+         <input style={inp} {...f('address')} placeholder="e.g. 123 High Street, London" />
+         <label style={lbl}>Country</label>
+         <select style={inp} {...f('country')}>
+           <option value="UK">United Kingdom</option>
+           <option value="Vietnam">Vietnam</option>
+         </select>
+         {error && <div style={{ marginTop:12, padding:'9px 12px', background:'#fef2f2', borderRadius:8, color:'#ef4444', fontSize:13, fontWeight:600 }}>{error}</div>}
+         <button type="submit" disabled={loading} style={{ ...btnPrimary, width:'100%', marginTop:20, opacity: loading ? 0.7 : 1 }}>
+           {loading ? 'Creating account…' : 'Create Account'}
+         </button>
+       </form>
+       <div style={{ marginTop:16, textAlign:'center', fontSize:13, color:'#64748b' }}>
+         Already have an account? <button onClick={onBack} style={{ background:'none', border:'none', color:'#3b82f6', fontWeight:700, cursor:'pointer', fontSize:13, padding:0 }}>Sign in</button>
+       </div>
+     </div>
+   </div>
+ )
+}
+
+// Main App (authenticated)
+function MainApp({ salon, onLogout }) {
  const calRef = useRef(null)
 
  const [bookings, setBookings] = useState([])
@@ -976,7 +1093,7 @@ await axios.put(API + '/api/bookings/' + editingId, {
  <div style={{ width:230, background:'#0f172a', color:'#fff', display:'flex', flexDirection:'column', flexShrink:0 }}>
  <div style={{ padding:'24px 20px 16px' }}>
  <div style={{ fontSize:22, fontWeight:900 }}>Orbit</div>
- <div style={{ fontSize:11, color:'#475569', marginTop:2, fontWeight:600 }}>Salon OS</div>
+ <div style={{ fontSize:11, color:'#475569', marginTop:2, fontWeight:600 }}>{salon?.name || 'Salon OS'}</div>
  </div>
 
  {/* Nav */}
@@ -1040,6 +1157,13 @@ await axios.put(API + '/api/bookings/' + editingId, {
  </div>
  ))}
  </div>
+
+ {/* Logout */}
+ <div style={{ padding:'12px 10px 16px' }}>
+   <button onClick={onLogout} style={{ width:'100%', textAlign:'left', padding:'9px 12px', borderRadius:10, border:'none', background:'transparent', color:'#475569', fontWeight:700, fontSize:13, cursor:'pointer', display:'flex', alignItems:'center', gap:9 }}>
+     <span>⎋</span>Sign Out
+   </button>
+ </div>
  </div>
 
  {/* Main content */}
@@ -1085,7 +1209,7 @@ await axios.put(API + '/api/bookings/' + editingId, {
  </div>
  )}
  {view === 'clients' && <ClientsView />}
- {view === 'inbox' && <InboxView />}
+ {view === 'inbox' && <InboxView country={salon?.country} />}
  {view === 'analytics' && <Analytics />}
  </div>
 
@@ -1100,6 +1224,7 @@ await axios.put(API + '/api/bookings/' + editingId, {
  booking={checkoutBooking}
  services={services}
  receiptData={checkoutReceiptData}
+ country={salon?.country}
  onClose={() => { setShowCheckout(false); setCheckoutBooking(null); setCheckoutReceiptData(null) }}
  onComplete={(id, closeModal = true) => {
  setBookings(prev => prev.map(b => b.id !== id ? b : { ...b, status:'completed' }))
@@ -1299,4 +1424,59 @@ await axios.put(API + '/api/bookings/' + editingId, {
  )}
  </div>
  )
+}
+
+// Auth wrapper — root export
+export default function App() {
+ const [token, setToken] = useState(() => sessionStorage.getItem('orbit_token') || null)
+ const [salon, setSalon] = useState(() => {
+   try { return JSON.parse(sessionStorage.getItem('orbit_salon') || 'null') } catch { return null }
+ })
+ const [page, setPage] = useState('login') // 'login' | 'signup'
+
+ useEffect(() => {
+   if (token) {
+     axios.defaults.headers.common['Authorization'] = 'Bearer ' + token
+   } else {
+     delete axios.defaults.headers.common['Authorization']
+   }
+ }, [token])
+
+ // Restore session on mount — verify token is still valid
+ useEffect(() => {
+   if (!token) return
+   axios.get(API + '/api/auth/me').then(r => {
+     setSalon(r.data.salon)
+     sessionStorage.setItem('orbit_salon', JSON.stringify(r.data.salon))
+   }).catch(() => handleLogout())
+ }, [])
+
+ function handleLogin(accessToken, salonData) {
+   setToken(accessToken)
+   setSalon(salonData)
+   sessionStorage.setItem('orbit_token', accessToken)
+   sessionStorage.setItem('orbit_salon', JSON.stringify(salonData))
+   axios.defaults.headers.common['Authorization'] = 'Bearer ' + accessToken
+ }
+
+ function handleLogout() {
+   if (token) {
+     axios.post(API + '/api/auth/logout').catch(() => {})
+   }
+   setToken(null)
+   setSalon(null)
+   sessionStorage.removeItem('orbit_token')
+   sessionStorage.removeItem('orbit_salon')
+   delete axios.defaults.headers.common['Authorization']
+   setPage('login')
+ }
+
+ if (!token) {
+   if (page === 'signup') {
+     return <SignupPage onLogin={handleLogin} onBack={() => setPage('login')} />
+   }
+   return <LoginPage onLogin={(t, s, nav) => nav === 'signup' ? setPage('signup') : handleLogin(t, s)} />
+ }
+
+ return <MainApp salon={salon} onLogout={handleLogout} />
 }
