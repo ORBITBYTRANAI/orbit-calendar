@@ -6,7 +6,9 @@ import dayGridPlugin from '@fullcalendar/daygrid'
 import interactionPlugin from '@fullcalendar/interaction'
 import axios from 'axios'
 
-const API = import.meta.env.VITE_API_URL || 'http://localhost:3001'
+const API = window.location.hostname === 'localhost'
+  ? 'http://localhost:3001'
+  : 'https://orbit-backend-production-e46d.up.railway.app'
 
 // Constants 
 const CATEGORIES = [
