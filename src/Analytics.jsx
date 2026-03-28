@@ -1,9 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import axios from 'axios'
 
-const API = window.location.hostname === 'localhost'
-  ? 'http://localhost:3001'
-  : 'https://orbit-backend-production-e46d.up.railway.app'
+const API = 'https://orbit-backend-production-e46d.up.railway.app'
 
 const GOLD  = '#c9a96e'
 const DARK  = '#1e1e2e'
