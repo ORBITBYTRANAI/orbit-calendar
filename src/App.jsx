@@ -1129,7 +1129,7 @@ await axios.put(API + '/api/bookings/' + editingId, {
  {/* Sidebar */}
  <div style={{ width:230, background:'#ffffff', color:'#0f172a', display:'flex', flexDirection:'column', flexShrink:0, borderRight:'1px solid #e2e8f0' }}>
  <div style={{ padding:'20px 20px 14px', display:'flex', alignItems:'center', gap:10 }}>
- <img src={orbitLogo} alt="Orbit" style={{ width:28, height:28, objectFit:'contain', flexShrink:0 }} />
+ <img src={orbitLogo} alt="Orbit" style={{ width:40, height:40, objectFit:'contain', flexShrink:0 }} />
  <div>
    <div style={{ fontSize:18, fontWeight:800, color:'#0f172a', fontFamily:"'Neue Montreal', ui-sans-serif, system-ui, sans-serif", letterSpacing:'-0.3px' }}>Orbit Calendar</div>
    <div style={{ fontSize:11, color:'#94a3b8', marginTop:1, fontWeight:600 }}>{salon?.name || ''}</div>
