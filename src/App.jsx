@@ -1127,12 +1127,12 @@ await axios.put(API + '/api/bookings/' + editingId, {
  <div style={{ display:'flex', height:'100vh', fontFamily:'ui-sans-serif, system-ui, sans-serif', background:'#ffffff', overflow:'hidden' }}>
 
  {/* Sidebar */}
- <div style={{ width:230, background:'#0f172a', color:'#fff', display:'flex', flexDirection:'column', flexShrink:0 }}>
+ <div style={{ width:230, background:'#ffffff', color:'#0f172a', display:'flex', flexDirection:'column', flexShrink:0, borderRight:'1px solid #e2e8f0' }}>
  <div style={{ padding:'20px 20px 14px', display:'flex', alignItems:'center', gap:10 }}>
  <img src={orbitLogo} alt="Orbit" style={{ width:28, height:28, objectFit:'contain', flexShrink:0 }} />
  <div>
-   <div style={{ fontSize:18, fontWeight:800, fontFamily:"'Neue Montreal', ui-sans-serif, system-ui, sans-serif", letterSpacing:'-0.3px' }}>Orbit Calendar</div>
-   <div style={{ fontSize:11, color:'#475569', marginTop:1, fontWeight:600 }}>{salon?.name || ''}</div>
+   <div style={{ fontSize:18, fontWeight:800, color:'#0f172a', fontFamily:"'Neue Montreal', ui-sans-serif, system-ui, sans-serif", letterSpacing:'-0.3px' }}>Orbit Calendar</div>
+   <div style={{ fontSize:11, color:'#94a3b8', marginTop:1, fontWeight:600 }}>{salon?.name || ''}</div>
  </div>
  </div>
 
@@ -1146,8 +1146,8 @@ await axios.put(API + '/api/bookings/' + editingId, {
  ].map(n => (
  <button key={n.id} onClick={() => setView(n.id)}
  style={{ width:'100%', textAlign:'left', padding:'9px 12px', borderRadius:10, border:'none',
- background: view===n.id ? 'rgba(255,255,255,0.1)' : 'transparent',
- color: view===n.id ? '#fff' : '#64748b', fontWeight:700, fontSize:13,
+ background: view===n.id ? '#f1f5f9' : 'transparent',
+ color: view===n.id ? '#0f172a' : '#64748b', fontWeight:700, fontSize:13,
  cursor:'pointer', display:'flex', alignItems:'center', gap:9, marginBottom:2 }}>
  <span>{n.icon}</span>{n.label}
  </button>
@@ -1160,38 +1160,38 @@ await axios.put(API + '/api/bookings/' + editingId, {
  </button>
  </div>
 
- <div style={{ height:1, background:'rgba(255,255,255,0.06)', margin:'4px 16px 12px' }} />
+ <div style={{ height:1, background:'#e2e8f0', margin:'4px 16px 12px' }} />
 
  <div style={{ padding:'0 20px', flex:1, overflowY:'auto' }}>
  {/* Technicians */}
  <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:8 }}>
- <div style={{ fontSize:10, color:'#475569', fontWeight:800, textTransform:'uppercase', letterSpacing:1 }}>Technicians</div>
- <button onClick={() => setShowTechMgr(true)} style={{ fontSize:18, lineHeight:1, background:'none', border:'none', color:'#64748b', cursor:'pointer' }}>+</button>
+ <div style={{ fontSize:10, color:'#94a3b8', fontWeight:800, textTransform:'uppercase', letterSpacing:1 }}>Technicians</div>
+ <button onClick={() => setShowTechMgr(true)} style={{ fontSize:18, lineHeight:1, background:'none', border:'none', color:'#94a3b8', cursor:'pointer' }}>+</button>
  </div>
  {technicians.map(t => (
  <div key={t.id} style={{ display:'flex', justifyContent:'space-between', alignItems:'center', padding:'5px 0' }}>
- <button onClick={() => openCapMgr(t)} style={{ background:'none', border:'none', color:'#cbd5e1', fontWeight:700, fontSize:13, cursor:'pointer', padding:0 }}>{t.name}</button>
- <button onClick={() => removeTechnician(t.id)} style={{ background:'none', border:'none', color:'#475569', cursor:'pointer', fontSize:12 }}></button>
+ <button onClick={() => openCapMgr(t)} style={{ background:'none', border:'none', color:'#0f172a', fontWeight:700, fontSize:13, cursor:'pointer', padding:0 }}>{t.name}</button>
+ <button onClick={() => removeTechnician(t.id)} style={{ background:'none', border:'none', color:'#cbd5e1', cursor:'pointer', fontSize:12 }}></button>
  </div>
  ))}
 
- <div style={{ height:1, background:'rgba(255,255,255,0.06)', margin:'14px 0' }} />
+ <div style={{ height:1, background:'#e2e8f0', margin:'14px 0' }} />
 
  {/* Services */}
  <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:8 }}>
- <div style={{ fontSize:10, color:'#475569', fontWeight:800, textTransform:'uppercase', letterSpacing:1 }}>Services</div>
- <button onClick={() => setShowSvcMgr(true)} style={{ fontSize:18, lineHeight:1, background:'none', border:'none', color:'#64748b', cursor:'pointer' }}>+</button>
+ <div style={{ fontSize:10, color:'#94a3b8', fontWeight:800, textTransform:'uppercase', letterSpacing:1 }}>Services</div>
+ <button onClick={() => setShowSvcMgr(true)} style={{ fontSize:18, lineHeight:1, background:'none', border:'none', color:'#94a3b8', cursor:'pointer' }}>+</button>
  </div>
  {grouped.map(g => (
  <div key={g.label} style={{ marginBottom:10 }}>
  <div style={{ display:'flex', alignItems:'center', gap:6, marginBottom:4 }}>
  <div style={{ width:8, height:8, borderRadius:2, background:g.color, flexShrink:0 }} />
- <span style={{ fontSize:10, color:'#64748b', fontWeight:800, textTransform:'uppercase', letterSpacing:0.5 }}>{g.label}</span>
+ <span style={{ fontSize:10, color:'#94a3b8', fontWeight:800, textTransform:'uppercase', letterSpacing:0.5 }}>{g.label}</span>
  </div>
  {g.items.map(s => (
  <div key={s.id} style={{ display:'flex', justifyContent:'space-between', alignItems:'center', padding:'3px 0 3px 14px' }}>
- <span style={{ fontSize:12, color:'#cbd5e1', fontWeight:600 }}>{s.name}</span>
- <button onClick={() => removeService(s.id)} style={{ background:'none', border:'none', color:'#475569', cursor:'pointer', fontSize:11 }}></button>
+ <span style={{ fontSize:12, color:'#334155', fontWeight:600 }}>{s.name}</span>
+ <button onClick={() => removeService(s.id)} style={{ background:'none', border:'none', color:'#cbd5e1', cursor:'pointer', fontSize:11 }}></button>
  </div>
  ))}
  </div>
@@ -1200,7 +1200,7 @@ await axios.put(API + '/api/bookings/' + editingId, {
 
  {/* Logout */}
  <div style={{ padding:'12px 10px 16px' }}>
-   <button onClick={onLogout} style={{ width:'100%', textAlign:'left', padding:'9px 12px', borderRadius:10, border:'none', background:'transparent', color:'#475569', fontWeight:700, fontSize:13, cursor:'pointer', display:'flex', alignItems:'center', gap:9 }}>
+   <button onClick={onLogout} style={{ width:'100%', textAlign:'left', padding:'9px 12px', borderRadius:10, border:'none', background:'transparent', color:'#94a3b8', fontWeight:700, fontSize:13, cursor:'pointer', display:'flex', alignItems:'center', gap:9 }}>
      <span>⎋</span>Sign Out
    </button>
  </div>
