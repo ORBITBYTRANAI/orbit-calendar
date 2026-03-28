@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import Analytics from './Analytics'
+import orbitLogo from './assets/orbit-logo.png'
 import FullCalendar from '@fullcalendar/react'
 import resourceTimeGridPlugin from '@fullcalendar/resource-timegrid'
 import dayGridPlugin from '@fullcalendar/daygrid'
@@ -36,7 +37,8 @@ const inp = { width:'100%', padding:'9px 12px', borderRadius:8, border:'1px soli
 const btnPrimary = { padding:'11px 20px', borderRadius:10, border:'none', background:'#0f172a', color:'#fff', fontWeight:800, cursor:'pointer', fontSize:13 }
 const btnGhost = { padding:'11px 20px', borderRadius:10, border:'1px solid #e2e8f0', background:'#fff', fontWeight:800, cursor:'pointer', fontSize:13, color:'#0f172a' }
 const btnDanger = { padding:'11px 20px', borderRadius:10, border:'none', background:'#ef4444', color:'#fff', fontWeight:800, cursor:'pointer', fontSize:13 }
-const btnGreen = { padding:'11px 20px', borderRadius:10, border:'none', background:'#059669', color:'#fff', fontWeight:800, cursor:'pointer', fontSize:13 }
+const btnGreen  = { padding:'11px 20px', borderRadius:10, border:'none', background:'#059669', color:'#fff', fontWeight:800, cursor:'pointer', fontSize:13 }
+const btnAmber  = { padding:'11px 20px', borderRadius:10, border:'none', background:'#f59e0b', color:'#fff', fontWeight:800, cursor:'pointer', fontSize:13 }
 
 // Modal wrapper 
 function Modal({ title, onClose, children, width }) {
@@ -686,8 +688,8 @@ function LoginPage({ onLogin }) {
    <div style={{ minHeight:'100vh', background:'#f8fafc', display:'flex', alignItems:'center', justifyContent:'center', fontFamily:'ui-sans-serif, system-ui, sans-serif' }}>
      <div style={{ background:'#fff', borderRadius:20, padding:40, width:380, boxShadow:'0 20px 60px rgba(0,0,0,0.12)' }}>
        <div style={{ marginBottom:28, textAlign:'center' }}>
-         <div style={{ fontSize:28, fontWeight:900, color:'#0f172a' }}>Orbit</div>
-         <div style={{ fontSize:13, color:'#64748b', marginTop:4, fontWeight:600 }}>Salon OS — Sign in to your salon</div>
+         <div style={{ fontSize:26, fontWeight:800, color:'#0f172a', fontFamily:"'Neue Montreal', ui-sans-serif, system-ui, sans-serif" }}>Orbit Calendar</div>
+         <div style={{ fontSize:13, color:'#64748b', marginTop:4, fontWeight:600 }}>Sign in to your salon</div>
        </div>
        <form onSubmit={handleSubmit}>
          <label style={lbl}>Email</label>
@@ -741,7 +743,7 @@ function SignupPage({ onLogin, onBack }) {
    <div style={{ minHeight:'100vh', background:'#f8fafc', display:'flex', alignItems:'center', justifyContent:'center', fontFamily:'ui-sans-serif, system-ui, sans-serif' }}>
      <div style={{ background:'#fff', borderRadius:20, padding:40, width:420, boxShadow:'0 20px 60px rgba(0,0,0,0.12)', maxHeight:'95vh', overflowY:'auto' }}>
        <div style={{ marginBottom:24, textAlign:'center' }}>
-         <div style={{ fontSize:28, fontWeight:900, color:'#0f172a' }}>Orbit</div>
+         <div style={{ fontSize:26, fontWeight:800, color:'#0f172a', fontFamily:"'Neue Montreal', ui-sans-serif, system-ui, sans-serif" }}>Orbit Calendar</div>
          <div style={{ fontSize:13, color:'#64748b', marginTop:4, fontWeight:600 }}>Create your salon account</div>
        </div>
        <form onSubmit={handleSubmit}>
@@ -798,6 +800,8 @@ function MainApp({ salon, onLogout }) {
  const [openingHours, setOpeningHours] = useState(DEFAULT_HOURS)
  const [hoursLoaded, setHoursLoaded] = useState(false)
  const [svcSearch, setSvcSearch] = useState('')
+ const [techNotes, setTechNotes] = useState({})
+ const [calDate, setCalDate] = useState(() => new Date().toISOString().slice(0, 10))
 
  const emptyForm = { full_name:'', phone:'', email:'', technician_id:'', service_ids:[], start_time:'', notes:'' }
  const [form, setForm] = useState(emptyForm)
@@ -832,7 +836,28 @@ function MainApp({ salon, onLogout }) {
  return () => clearInterval(interval)
  }, [])
 
- // Calendar resources & events 
+ // Load technician daily notes when date or technician list changes
+ useEffect(() => {
+ if (!technicians.length || !calDate) return
+ Promise.all(
+   technicians.map(t =>
+     axios.get(API + `/api/settings/tech_note_${t.id}_${calDate}`).catch(() => ({ data: null }))
+   )
+ ).then(results => {
+   const loaded = {}
+   results.forEach((r, i) => {
+     loaded[`${technicians[i].id}_${calDate}`] = r.data?.value ?? ''
+   })
+   setTechNotes(prev => ({ ...prev, ...loaded }))
+ })
+ }, [calDate, technicians])
+
+ async function saveTechNote(techId, date, value) {
+ setTechNotes(prev => ({ ...prev, [`${techId}_${date}`]: value }))
+ await axios.post(API + `/api/settings/tech_note_${techId}_${date}`, { value }).catch(() => {})
+ }
+
+ // Calendar resources & events
  const resources = technicians.map(t => ({ id: t.id, title: t.name }))
 
  const closedDayNames = openingHours.filter(h => !h.open).map(h => {
@@ -865,17 +890,22 @@ function MainApp({ salon, onLogout }) {
  }
  })
 
- // Opening hours → slot range 
+ // Opening hours → slot range (slotMax extends 1 hr past closing for staff overflow)
  const openDays = openingHours.filter(h => h.open)
  const earliestOpen = openDays.length ? openDays.reduce((a, b) => a.from < b.from ? a : b).from : '09:00'
- const latestClose = openDays.length ? openDays.reduce((a, b) => a.to > b.to ? a : b).to : '20:00'
+ const latestClose  = openDays.length ? openDays.reduce((a, b) => a.to > b.to ? a : b).to : '20:00'
  const slotMin = earliestOpen + ':00'
- const slotMax = latestClose + ':00'
+ const [closeH, closeM] = latestClose.split(':').map(Number)
+ const overflowH = closeH + 1
+ const slotMax = String(overflowH).padStart(2, '0') + ':' + String(closeM).padStart(2, '0') + ':00'
 
- // Date / slot click handlers 
+ // Date / slot click handlers
  function handleDateClick(info) {
+ // In month view: navigate to that day instead of auto-switching view
  const api = calRef.current?.getApi()
- if (api?.view.type === 'dayGridMonth') api.changeView('resourceTimeGridDay', info.dateStr)
+ if (api?.view.type === 'dayGridMonth') {
+   api.changeView('resourceTimeGridDay', info.dateStr)
+ }
  }
 
  function openCreate(info) {
@@ -1004,6 +1034,13 @@ await axios.put(API + '/api/bookings/' + editingId, {
  await axios.delete(API + '/api/bookings/' + editingId)
  }
 
+ async function handleNoShow() {
+ if (!window.confirm('Mark this appointment as no show?')) return
+ setBookings(prev => prev.map(b => b.id !== editingId ? b : { ...b, status: 'no_show' }))
+ setShowBooking(false)
+ await axios.put(API + '/api/bookings/' + editingId, { status: 'no_show' })
+ }
+
  async function handleDrop(info) {
  const id = info.event.id, start = info.event.startStr, end = info.event.endStr
  const techId = info.event.getResources()[0]?.id
@@ -1087,13 +1124,16 @@ await axios.put(API + '/api/bookings/' + editingId, {
  const grouped = CATEGORIES.map(cat => ({ ...cat, items: services.filter(s => s.category === cat.label) })).filter(g => g.items.length > 0)
 
  return (
- <div style={{ display:'flex', height:'100vh', fontFamily:'ui-sans-serif, system-ui, sans-serif', background:'#f8fafc', overflow:'hidden' }}>
+ <div style={{ display:'flex', height:'100vh', fontFamily:'ui-sans-serif, system-ui, sans-serif', background:'#ffffff', overflow:'hidden' }}>
 
  {/* Sidebar */}
  <div style={{ width:230, background:'#0f172a', color:'#fff', display:'flex', flexDirection:'column', flexShrink:0 }}>
- <div style={{ padding:'24px 20px 16px' }}>
- <div style={{ fontSize:22, fontWeight:900 }}>Orbit</div>
- <div style={{ fontSize:11, color:'#475569', marginTop:2, fontWeight:600 }}>{salon?.name || 'Salon OS'}</div>
+ <div style={{ padding:'20px 20px 14px', display:'flex', alignItems:'center', gap:10 }}>
+ <img src={orbitLogo} alt="Orbit" style={{ width:28, height:28, objectFit:'contain', flexShrink:0 }} />
+ <div>
+   <div style={{ fontSize:18, fontWeight:800, fontFamily:"'Neue Montreal', ui-sans-serif, system-ui, sans-serif", letterSpacing:'-0.3px' }}>Orbit Calendar</div>
+   <div style={{ fontSize:11, color:'#475569', marginTop:1, fontWeight:600 }}>{salon?.name || ''}</div>
+ </div>
  </div>
 
  {/* Nav */}
@@ -1181,9 +1221,10 @@ await axios.put(API + '/api/bookings/' + editingId, {
  .fc .fc-button:hover { background: #1e293b !important; }
  .fc .fc-button-active { background: #334155 !important; border-color: #334155 !important; }
  .fc-event { border-radius: 6px !important; font-size: 12px !important; font-weight: 700 !important; }
- .fc .fc-col-header-cell { font-weight: 800; font-size: 13px; padding: 8px 0; }
+ .fc .fc-col-header-cell { font-weight: 800; font-size: 13px; padding: 6px 0; }
  .fc .fc-timegrid-slot-label { font-size: 11px; color: #94a3b8; }
  .fc .fc-daygrid-day-number { font-weight: 700; }
+ .fc .fc-daygrid-day-events { max-height: 110px; overflow-y: auto; }
  ${closedDayNames.map(d => `.fc .fc-day[data-dow="${d}"] { background: #f1f5f9 !important; opacity: 0.6; }`).join('\n')}
  `}</style>
  <FullCalendar
@@ -1202,9 +1243,34 @@ await axios.put(API + '/api/bookings/' + editingId, {
  slotMinTime={slotMin}
  slotMaxTime={slotMax}
  slotDuration="00:30:00"
+ snapDuration="00:05:00"
  allDaySlot={false}
+ dayMaxEvents={false}
  height="auto"
  headerToolbar={{ left:'prev,next today', center:'title', right:'resourceTimeGridDay,dayGridMonth' }}
+ buttonText={{ today:'Today', resourceTimeGridDay:'Day', dayGridMonth:'Month' }}
+ datesSet={(info) => {
+   if (info.view.type === 'resourceTimeGridDay') {
+     setCalDate(info.startStr.slice(0, 10))
+   }
+ }}
+ resourceLabelContent={(info) => {
+   const techId = info.resource.id
+   const noteKey = `${techId}_${calDate}`
+   return (
+     <div style={{ display:'flex', flexDirection:'column', gap:3, padding:'2px 4px' }}>
+       <span style={{ fontWeight:800 }}>{info.resource.title}</span>
+       <input
+         style={{ fontSize:10, color:'#64748b', border:'none', borderBottom:'1px dashed #e2e8f0', background:'transparent', outline:'none', width:'100%', fontFamily:'inherit', padding:'1px 0' }}
+         placeholder="Add a note..."
+         value={techNotes[noteKey] ?? ''}
+         onChange={e => setTechNotes(prev => ({ ...prev, [noteKey]: e.target.value }))}
+         onBlur={e => saveTechNote(techId, calDate, e.target.value)}
+         onClick={e => e.stopPropagation()}
+       />
+     </div>
+   )
+ }}
  />
  </div>
  )}
@@ -1299,7 +1365,7 @@ await axios.put(API + '/api/bookings/' + editingId, {
  <label style={lbl}>Notes</label>
  <textarea style={{...inp, height:68, resize:'vertical'}} value={form.notes} onChange={e => setForm({...form, notes:e.target.value})} placeholder="Optional notes…" />
 
- <div style={{ display:'flex', gap:10, marginTop:20, flexWrap:'nowrap' }}>
+ <div style={{ display:'flex', gap:10, marginTop:20, flexWrap:'wrap' }}>
  <button onClick={handleSave} style={{...btnPrimary, flex:1}}>Save Booking</button>
  {editingId && (
  <button onClick={() => {
@@ -1309,6 +1375,7 @@ await axios.put(API + '/api/bookings/' + editingId, {
  setShowCheckout(true)
  }} style={{...btnGreen, flex:1}}>Checkout</button>
  )}
+ {editingId && <button onClick={handleNoShow} style={{...btnAmber, flex:1}}>No Show</button>}
  {editingId && <button onClick={handleCancel} style={{...btnDanger, flex:1}}>Cancel Appt</button>}
  </div>
  </Modal>
