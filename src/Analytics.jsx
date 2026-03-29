@@ -102,6 +102,25 @@ export default function Analytics() {
   })
   const topServices = Object.entries(svcMap).sort(([,a],[,b]) => b - a).slice(0, 5)
 
+  // Revenue by service (from service prices × booking count)
+  const revByService = {}
+  bookings.forEach(b => {
+    const name = b.services?.name || 'Unknown'
+    const price = parseFloat(b.services?.price || 0)
+    revByService[name] = (revByService[name] || 0) + price
+  })
+  const totalRevenue = Object.values(revByService).reduce((s, v) => s + v, 0)
+  const revByServiceArr = Object.entries(revByService).sort(([,a],[,b]) => b - a).slice(0, 5).map(([name, rev]) => ({ name, rev: parseFloat(rev.toFixed(2)) }))
+
+  // Revenue by technician
+  const revByTech = {}
+  bookings.forEach(b => {
+    const name = b.technicians?.name || 'Unassigned'
+    const price = parseFloat(b.services?.price || 0)
+    revByTech[name] = (revByTech[name] || 0) + price
+  })
+  const revByTechArr = Object.entries(revByTech).sort(([,a],[,b]) => b - a).map(([name, rev]) => ({ name, rev: parseFloat(rev.toFixed(2)) }))
+
   // Source breakdown
   const srcMap = {}
   bookings.forEach(b => { srcMap[b.source || 'manual'] = (srcMap[b.source || 'manual'] || 0) + 1 })
@@ -123,6 +142,9 @@ export default function Analytics() {
       topServices: topServices.map(([name, count]) => ({ name, count })),
       bookingsByDay: dayEntries.map(([date, count]) => ({ date, count })),
       sources: srcMap,
+      totalRevenue: parseFloat(totalRevenue.toFixed(2)),
+      revenueByService: revByServiceArr,
+      revenueByTechnician: revByTechArr,
     }
     try {
       const res = await fetch('https://api.anthropic.com/v1/messages', {
@@ -133,7 +155,7 @@ export default function Analytics() {
           max_tokens: 1000,
           messages: [{
             role: 'user',
-            content: `You are a nail salon business advisor. Based on this salon performance data, give 3-4 specific, actionable recommendations to help the owner grow bookings and improve performance. Focus ONLY on booking patterns, technician workload, service popularity, and customer acquisition channels. Do NOT mention, reference, or analyse revenue, income, pricing, or money in any way.
+            content: `You are a nail salon business advisor. Based on this salon performance data, give 3-4 specific, actionable recommendations to help the owner grow bookings and improve revenue. Include insights from both booking patterns and revenue data — identify which services and technicians generate the most value, flag any underperformance, and suggest practical ways to grow.
 
 Salon data:
 ${JSON.stringify(summary, null, 2)}
@@ -199,13 +221,12 @@ Format your response as a numbered list. Each point should be 2-3 sentences. Be 
           {/* KPI cards */}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 16, marginBottom: 24 }}>
             {[
-              { label: 'Total Bookings', value: totalBookings, icon: '📅' },
-              { label: 'Completed',      value: completed,     icon: '✅' },
-              { label: 'Cancelled',      value: cancelled,     icon: '❌' },
-              { label: 'Busiest Day',    value: busiestDay[0] !== '—' ? dayName(busiestDay[0]) : '—', icon: '🔥', sub: busiestDay[1] > 0 ? busiestDay[1] + ' bookings' : '' },
-            ].map(({ label, value, icon, sub }) => (
+              { label: 'Total Bookings', value: totalBookings },
+              { label: 'Completed',      value: completed },
+              { label: 'Cancelled',      value: cancelled },
+              { label: 'Busiest Day',    value: busiestDay[0] !== '—' ? dayName(busiestDay[0]) : '—', sub: busiestDay[1] > 0 ? busiestDay[1] + ' bookings' : '' },
+            ].map(({ label, value, sub }) => (
               <div key={label} style={{ background: CARD, borderRadius: 14, padding: '18px 20px', boxShadow: '0 1px 6px rgba(0,0,0,.06)' }}>
-                <div style={{ fontSize: 22, marginBottom: 6 }}>{icon}</div>
                 <div style={{ fontSize: 26, fontWeight: 800, color: TEXT }}>{value}</div>
                 {sub && <div style={{ fontSize: 12, color: GOLD, fontWeight: 600 }}>{sub}</div>}
                 <div style={{ fontSize: 12, color: MUTED, marginTop: 2 }}>{label}</div>
@@ -245,7 +266,7 @@ Format your response as a numbered list. Each point should be 2-3 sentences. Be 
                   {techStats.map((t, i) => (
                     <div key={t.name}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
-                        <span style={{ fontSize: 13, fontWeight: 600, color: TEXT }}>{i === 0 ? '🏆 ' : ''}{t.name}</span>
+                        <span style={{ fontSize: 13, fontWeight: 600, color: TEXT }}>{t.name}</span>
                         <span style={{ fontSize: 13, color: MUTED }}>{t.count} {t.count === 1 ? 'booking' : 'bookings'}</span>
                       </div>
                       <div style={{ background: '#f1f1f1', borderRadius: 6, overflow: 'hidden', height: 8 }}>
@@ -283,11 +304,10 @@ Format your response as a numbered list. Each point should be 2-3 sentences. Be 
               ) : (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                   {Object.entries(srcMap).sort(([,a],[,b]) => b - a).map(([src, count]) => {
-                    const icons = { manual: '🖥️', website_chat: '💬', ai_receptionist: '🤖', vapi: '📞' }
                     const labels = { manual: 'Walk-in / Staff', website_chat: 'Chat Widget', ai_receptionist: 'AI Receptionist', vapi: 'Voice' }
                     return (
                       <div key={src} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <span style={{ fontSize: 13, color: TEXT }}>{icons[src] || '📌'} {labels[src] || src}</span>
+                        <span style={{ fontSize: 13, color: TEXT }}>{labels[src] || src}</span>
                         <span style={{ fontSize: 13, fontWeight: 700, color: GOLD }}>{count}</span>
                       </div>
                     )
@@ -301,7 +321,7 @@ Format your response as a numbered list. Each point should be 2-3 sentences. Be 
           <div style={{ background: DARK, borderRadius: 14, padding: 24, boxShadow: '0 1px 6px rgba(0,0,0,.12)' }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: aiRec ? 16 : 0, flexWrap: 'wrap', gap: 12 }}>
               <div>
-                <div style={{ fontWeight: 700, fontSize: 15, color: '#fff' }}>🤖 AI Recommendations</div>
+                <div style={{ fontWeight: 700, fontSize: 15, color: '#fff' }}>AI Recommendations</div>
                 <div style={{ fontSize: 12, color: 'rgba(255,255,255,.5)', marginTop: 2 }}>Based on your booking data for this period</div>
               </div>
               <button onClick={fetchAiRec} disabled={aiLoading || totalBookings === 0} style={{

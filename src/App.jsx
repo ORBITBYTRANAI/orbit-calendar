@@ -56,20 +56,31 @@ function Modal({ title, onClose, children, width }) {
  )
 }
 
+// Flag Icon
+function FlagIcon({ active, size=14 }) {
+ return (
+   <svg width={size} height={size+2} viewBox="0 0 12 14" fill="none" style={{ display:'block', flexShrink:0 }}>
+     <line x1="1.5" y1="1" x2="1.5" y2="13" stroke={active ? '#ef4444' : '#d1d5db'} strokeWidth="1.5" strokeLinecap="round"/>
+     <path d="M1.5 1.5 L10.5 4.5 L1.5 7.5 Z" fill={active ? '#ef4444' : '#d1d5db'} stroke={active ? '#ef4444' : '#d1d5db'} strokeWidth="0.5"/>
+   </svg>
+ )
+}
+
 // Checkout Modal 
-function CheckoutModal({ booking, services, onClose, onComplete, receiptData, country }) {
+function CheckoutModal({ booking, services, onClose, onComplete, receiptData, country, loyaltyDiscount }) {
  const selectedSvcs = booking.service_ids?.length
  ? booking.service_ids.map(id => services.find(s => s.id === id)).filter(Boolean)
  : (booking.service_id ? [services.find(s => s.id === booking.service_id)].filter(Boolean) : [])
  const svc = selectedSvcs[0] || services.find(s => s.id === booking.service_id)
  const defaultTotal = parseFloat(selectedSvcs.reduce((sum, s) => sum + parseFloat(s?.price || 0), 0).toFixed(2)) || parseFloat(svc?.price || 0)
+ const discountAmt = (loyaltyDiscount && !receiptData) ? (parseFloat(loyaltyDiscount) || 0) : 0
 
  // Initialise synchronously from pre-fetched receiptData so receipt shows with no flash
  const initDone   = booking.status === 'completed'
- const initTotal  = receiptData?.total_amount ?? defaultTotal
+ const initTotal  = receiptData?.total_amount ?? Math.max(0, defaultTotal - discountAmt)
  const initSplits = (Array.isArray(receiptData?.payments) && receiptData.payments.length)
    ? receiptData.payments
-   : [{ method: 'Cash', amount: defaultTotal }]
+   : [{ method: 'Cash', amount: Math.max(0, defaultTotal - discountAmt) }]
  const initNotes  = receiptData?.notes || ''
 
  const [total, setTotal] = useState(initTotal)
@@ -97,6 +108,10 @@ function CheckoutModal({ booking, services, onClose, onComplete, receiptData, co
  })
  setDone(true)
  onComplete(booking.id, false)
+ // Reset loyalty discount flag on the customer after checkout
+ if (discountAmt > 0 && booking.customer_id) {
+   axios.patch(API + '/api/customers/' + booking.customer_id, { loyalty_discount_active: false }).catch(() => {})
+ }
  } catch (err) {
  alert(err.response?.data?.error || 'Checkout failed.')
  setLoading(false)
@@ -175,6 +190,11 @@ function CheckoutModal({ booking, services, onClose, onComplete, receiptData, co
  <span style={{ fontWeight:700 }}>{new Date(booking.start_time).toLocaleString('en-GB', { weekday:'short', day:'numeric', month:'short', hour:'2-digit', minute:'2-digit' })}</span>
  </div>
  <div style={{ borderTop:'1px solid #e2e8f0', paddingTop:10, marginTop:4 }}>
+ {discountAmt > 0 && (
+ <div style={{ display:'flex', justifyContent:'space-between', fontSize:12, color:'#059669', fontWeight:700, marginBottom:4 }}>
+   <span>Loyalty Discount</span><span>-Â£{discountAmt.toFixed(2)}</span>
+ </div>
+ )}
  {splits.map((s, i) => (
  <div key={i} style={{ display:'flex', justifyContent:'space-between', fontSize:12, color:'#64748b', marginBottom:4 }}>
  <span>{s.method}</span><span>£{parseFloat(s.amount).toFixed(2)}</span>
@@ -211,6 +231,11 @@ function CheckoutModal({ booking, services, onClose, onComplete, receiptData, co
  {new Date(booking.start_time).toLocaleString('en-GB', { weekday:'short', day:'numeric', month:'short', hour:'2-digit', minute:'2-digit' })}
  </div>
  </div>
+ {discountAmt > 0 && (
+ <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', padding:'8px 12px', background:'#f0fdf4', border:'1px solid #bbf7d0', borderRadius:8, marginTop:10, marginBottom:4, fontSize:13, fontWeight:700, color:'#059669' }}>
+   <span>Loyalty Discount applied</span><span>-Â£{discountAmt.toFixed(2)}</span>
+ </div>
+ )}
  <label style={lbl}>Total Amount (£)</label>
  <input style={inp} type="number" min="0" step="0.01" value={total} onChange={e => {
  const v = parseFloat(e.target.value) || 0
@@ -340,9 +365,7 @@ function InboxView({ country }) {
 
  const CHANNEL_COLORS = { zalo: '#0068ff', messenger: '#00b2ff', instagram: '#e1306c', website: '#c9a96e', email: '#10b981' }
  const CHANNEL_LABELS = { zalo: 'Zalo', messenger: 'Messenger', instagram: 'Instagram', website: 'Chat Widget', email: 'Email' }
- const CHANNELS = country === 'UK'
-   ? ['all', 'website', 'messenger', 'instagram', 'email']
-   : ['all', 'website', 'messenger', 'instagram', 'email', 'zalo']
+ const CHANNELS = ['all', 'website', 'messenger', 'instagram', 'email']
  const FOLDERS = ['all', 'inquiries', 'feedback']
  const FOLDER_LABELS = { all: 'All', inquiries: 'General Inquiries', feedback: 'Feedback' }
  const FOLDER_ICONS = { all: '', inquiries: '', feedback: '' }
@@ -363,7 +386,7 @@ function InboxView({ country }) {
  return (
  <div style={{ display: 'flex', height: '100%', overflow: 'hidden' }}>
  {/* Sidebar */}
- <div style={{ width: 340, borderRight: '1px solid #e2e8f0', display: 'flex', flexDirection: 'column', background: '#fff' }}>
+ <div style={{ width: activeConv ? 340 : undefined, flex: activeConv ? undefined : 1, borderRight: activeConv ? '1px solid #e2e8f0' : 'none', display: 'flex', flexDirection: 'column', background: '#fff' }}>
  <div style={{ padding: '14px 16px', borderBottom: '1px solid #e2e8f0' }}>
  <div style={{ fontWeight: 900, fontSize: 15, marginBottom: 10 }}>Inbox</div>
 
@@ -415,13 +438,8 @@ function InboxView({ country }) {
  </div>
 
  {/* Conversation pane */}
+ {activeConv && (
  <div style={{ flex: 1, display: 'flex', flexDirection: 'column', background: '#f8fafc' }}>
- {!activeConv ? (
- <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: 12, color: '#94a3b8' }}>
- <div style={{ fontSize: 36 }}></div>
- <div style={{ fontSize: 14, fontWeight: 700 }}>Select a conversation</div>
- </div>
- ) : (
  <>
  <div style={{ padding: '12px 20px', background: '#fff', borderBottom: '1px solid #e2e8f0', display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
  <div style={{ fontWeight: 900, fontSize: 15 }}>{activeConv.customer_name}</div>
@@ -480,21 +498,60 @@ function InboxView({ country }) {
  </button>
  </div>
  </>
- )}
  </div>
+ )}
  </div>
  )
 }
 
 // Client Detail View
 function ClientDetail({ client, loading, onBack }) {
+ const [difficult, setDifficult] = useState(client?.difficult_client || false)
+ const [stars, setStars] = useState(client?.stars_earned || 0)
+ const [cycles, setCycles] = useState(client?.loyalty_cycles_completed || 0)
+ const [discountActive, setDiscountActive] = useState(client?.loyalty_discount_active || false)
+
+ // Sync local state when client prop changes (e.g. after detail loads)
+ useEffect(() => {
+   setDifficult(client?.difficult_client || false)
+   setStars(client?.stars_earned || 0)
+   setCycles(client?.loyalty_cycles_completed || 0)
+   setDiscountActive(client?.loyalty_discount_active || false)
+ }, [client?.id])
+
+ async function toggleDifficult() {
+   const next = !difficult
+   setDifficult(next)
+   await axios.patch(API + '/api/customers/' + client.id, { difficult_client: next }).catch(() => {})
+ }
+
+ async function clickStar(n) {
+   let newStars = n
+   let newCycles = cycles
+   let newDiscountActive = discountActive
+   if (n === 5) {
+     // Complete a cycle
+     newStars = 0
+     newCycles = cycles + 1
+     newDiscountActive = true
+   }
+   setStars(newStars)
+   setCycles(newCycles)
+   setDiscountActive(newDiscountActive)
+   await axios.patch(API + '/api/customers/' + client.id, {
+     stars_earned: newStars,
+     loyalty_cycles_completed: newCycles,
+     loyalty_discount_active: newDiscountActive,
+   }).catch(() => {})
+ }
+
  if (loading || !client.bookings) {
- return (
- <div style={{ padding:24, flex:1, overflowY:'auto' }}>
- <button onClick={onBack} style={{ background:'none', border:'none', color:'#64748b', fontWeight:700, fontSize:14, cursor:'pointer', marginBottom:16, padding:0 }}>← Back to Clients</button>
- <div style={{ color:'#94a3b8', fontSize:14 }}>Loading...</div>
- </div>
- )
+   return (
+   <div style={{ padding:24, flex:1, overflowY:'auto' }}>
+   <button onClick={onBack} style={{ background:'none', border:'none', color:'#64748b', fontWeight:700, fontSize:14, cursor:'pointer', marginBottom:16, padding:0 }}>← Back to Clients</button>
+   <div style={{ color:'#94a3b8', fontSize:14 }}>Loading...</div>
+   </div>
+   )
  }
  const stats = [
  { label:'Total Visits', value: client.total_visits || 0 },
@@ -509,11 +566,46 @@ function ClientDetail({ client, loading, onBack }) {
  <div style={{ width:52, height:52, borderRadius:'50%', background:'#0f172a', color:'#fff', display:'flex', alignItems:'center', justifyContent:'center', fontSize:20, fontWeight:900, flexShrink:0 }}>
  {client.full_name?.[0]?.toUpperCase()}
  </div>
- <div>
- <div style={{ fontSize:22, fontWeight:900, color:'#0f172a' }}>{client.full_name}</div>
- <div style={{ fontSize:13, color:'#64748b', marginTop:2 }}>{[client.phone, client.email].filter(Boolean).join(' · ')}</div>
+ <div style={{ flex:1 }}>
+   <div style={{ display:'flex', alignItems:'center', gap:10 }}>
+     <div style={{ fontSize:22, fontWeight:900, color:'#0f172a' }}>{client.full_name}</div>
+     <button onClick={toggleDifficult} title={difficult ? 'Remove difficult flag' : 'Flag as difficult client'}
+       style={{ background:'none', border:'none', cursor:'pointer', padding:3, display:'flex', alignItems:'center' }}>
+       <FlagIcon active={difficult} size={16} />
+     </button>
+   </div>
+   <div style={{ fontSize:13, color:'#64748b', marginTop:2 }}>{[client.phone, client.email].filter(Boolean).join(' · ')}</div>
  </div>
  </div>
+
+ {/* Loyalty Stars */}
+ <div style={{ background:'#fff', borderRadius:14, border:'1px solid #e2e8f0', padding:'16px 20px', marginBottom:20 }}>
+   <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:10 }}>
+     <div style={{ fontSize:13, fontWeight:800, color:'#0f172a' }}>Loyalty</div>
+     <div style={{ fontSize:12, color:'#64748b' }}>{cycles} {cycles === 1 ? 'cycle' : 'cycles'} completed</div>
+   </div>
+   <div style={{ display:'flex', alignItems:'center', gap:10 }}>
+     <div style={{ display:'flex', gap:6 }}>
+       {[1,2,3,4,5].map(n => (
+         <button key={n} onClick={() => clickStar(n)}
+           style={{ background:'none', border:'none', cursor:'pointer', padding:2, fontSize:22, lineHeight:1, color: n <= stars ? '#f59e0b' : '#d1d5db' }}>
+           {n <= stars ? '★' : '☆'}
+         </button>
+       ))}
+     </div>
+     {discountActive && (
+       <div style={{ marginLeft:8, padding:'3px 10px', background:'#fef3c7', border:'1px solid #fde68a', borderRadius:20, fontSize:11, fontWeight:800, color:'#92400e' }}>
+         Discount unlocked!
+       </div>
+     )}
+   </div>
+   {discountActive && (
+     <div style={{ marginTop:8, fontSize:12, color:'#059669', fontWeight:600 }}>
+       Loyalty discount will apply automatically at their next checkout.
+     </div>
+   )}
+ </div>
+
  <div style={{ display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:12, marginBottom:28 }}>
  {stats.map(s => (
  <div key={s.label} style={{ background:'#fff', borderRadius:12, padding:'16px 18px', border:'1px solid #e2e8f0' }}>
@@ -629,7 +721,7 @@ function ClientsView() {
  <table style={{ width:'100%', borderCollapse:'collapse' }}>
  <thead>
  <tr style={{ background:'#f8fafc', borderBottom:'1px solid #e2e8f0' }}>
- {['Name','Phone','Email','Visits','Last Visit','Total Spend'].map(h => (
+ {['Name','Phone','Email','Visits','Last Visit','Total Spend','Flag'].map(h => (
  <th key={h} style={{ padding:'10px 16px', textAlign:'left', fontSize:11, fontWeight:800, color:'#64748b', textTransform:'uppercase', letterSpacing:0.8 }}>{h}</th>
  ))}
  </tr>
@@ -649,6 +741,19 @@ function ClientsView() {
  </td>
  <td style={{ padding:'12px 16px', fontSize:13, fontWeight:700, color:'#059669' }}>
  {c.total_spend > 0 ? `£${c.total_spend.toFixed(2)}` : '—'}
+ </td>
+ <td style={{ padding:'12px 16px' }} onClick={e => e.stopPropagation()}>
+ <button
+   title={c.difficult_client ? 'Remove difficult flag' : 'Flag as difficult client'}
+   onClick={async () => {
+     const newVal = !c.difficult_client
+     setClients(prev => prev.map(x => x.id === c.id ? { ...x, difficult_client: newVal } : x))
+     await axios.patch(API + '/api/customers/' + c.id, { difficult_client: newVal }).catch(() => {})
+   }}
+   style={{ background:'none', border:'none', cursor:'pointer', padding:4, display:'flex', alignItems:'center' }}
+ >
+   <FlagIcon active={c.difficult_client || false} size={14} />
+ </button>
  </td>
  </tr>
  ))}
@@ -799,6 +904,7 @@ function MainApp({ salon, onLogout }) {
  const [showCheckout, setShowCheckout] = useState(false)
  const [checkoutBooking, setCheckoutBooking] = useState(null)
  const [checkoutReceiptData, setCheckoutReceiptData] = useState(null)
+ const [checkoutLoyaltyDiscount, setCheckoutLoyaltyDiscount] = useState(0)
  const [openingHours, setOpeningHours] = useState(DEFAULT_HOURS)
  const [hoursLoaded, setHoursLoaded] = useState(false)
  const [svcSearch, setSvcSearch] = useState('')
@@ -809,6 +915,7 @@ function MainApp({ salon, onLogout }) {
  const [calView, setCalView] = useState('resourceTimeGridDay')
  const [phoneMatches, setPhoneMatches] = useState([])
  const [clientNotes, setClientNotes] = useState('')
+ const [clientDifficult, setClientDifficult] = useState(false)
 
  const emptyForm = { full_name:'', phone:'', email:'', technician_id:'', service_ids:[], start_time:'', notes:'' }
  const [form, setForm] = useState(emptyForm)
@@ -944,6 +1051,11 @@ function MainApp({ salon, onLogout }) {
  const res = await axios.get(API + '/api/checkouts/' + info.event.id)
  receiptData = res.data
  } catch (_) {}
+ let loyaltyAmt = 0
+ if (fullBooking.customers?.loyalty_discount_active && !receiptData) {
+   try { const r = await axios.get(API + '/api/settings/loyalty_discount'); loyaltyAmt = parseFloat(r.data?.value || '0') || 0 } catch (_) {}
+ }
+ setCheckoutLoyaltyDiscount(loyaltyAmt)
  setCheckoutReceiptData(receiptData)
  setCheckoutBooking(fullBooking)
  setShowCheckout(true)
@@ -971,6 +1083,11 @@ function MainApp({ salon, onLogout }) {
  if (bk.status === 'completed') {
    let receiptData = null
    try { const r = await axios.get(API + '/api/checkouts/' + bk.id); receiptData = r.data } catch (_) {}
+   let loyaltyAmt = 0
+   if (bk.customers?.loyalty_discount_active && !receiptData) {
+     try { const r = await axios.get(API + '/api/settings/loyalty_discount'); loyaltyAmt = parseFloat(r.data?.value || '0') || 0 } catch (_) {}
+   }
+   setCheckoutLoyaltyDiscount(loyaltyAmt)
    setCheckoutReceiptData(receiptData)
    setCheckoutBooking(bk)
    setShowCheckout(true)
@@ -1373,7 +1490,7 @@ await axios.put(API + '/api/bookings/' + editingId, {
  )}
  {view === 'clients' && <ClientsView />}
  {view === 'inbox' && <InboxView country={salon?.country} />}
- {view === 'analytics' && <Analytics />}
+ {view === 'analytics' && <div style={{ flex:1, overflowY:'auto' }}><Analytics /></div>}
  </div>
 
  {/* Modals */}
@@ -1388,6 +1505,7 @@ await axios.put(API + '/api/bookings/' + editingId, {
  services={services}
  receiptData={checkoutReceiptData}
  country={salon?.country}
+ loyaltyDiscount={checkoutLoyaltyDiscount}
  onClose={() => { setShowCheckout(false); setCheckoutBooking(null); setCheckoutReceiptData(null) }}
  onComplete={(id, closeModal = true) => {
  setBookings(prev => prev.map(b => b.id !== id ? b : { ...b, status:'completed' }))
@@ -1397,7 +1515,7 @@ await axios.put(API + '/api/bookings/' + editingId, {
  )}
 
  {showBooking && (
- <Modal title={editingId ? 'Edit Booking' : 'New Booking'} onClose={() => { setShowBooking(false); setPhoneMatches([]); setClientNotes('') }}>
+ <Modal title={editingId ? 'Edit Booking' : 'New Booking'} onClose={() => { setShowBooking(false); setPhoneMatches([]); setClientNotes(''); setClientDifficult(false) }}>
  <label style={lbl}>Phone *</label>
  <div style={{ position:'relative' }}>
  <input style={inp} type="tel" value={form.phone} onChange={e => handlePhoneChange(e.target.value)} placeholder="e.g. 0912 345 678" autoComplete="off" />
@@ -1415,7 +1533,15 @@ await axios.put(API + '/api/bookings/' + editingId, {
  </div>
 
  <label style={lbl}>Client Name *</label>
+ <div style={{ position:'relative' }}>
  <input style={inp} value={form.full_name} onChange={e => setForm({...form, full_name:e.target.value})} placeholder="e.g. Ngoc Anh" />
+ {clientDifficult && <span style={{ position:'absolute', right:10, top:'50%', transform:'translateY(-50%)' }}><FlagIcon active={true} size={13} /></span>}
+ </div>
+ {clientDifficult && (
+ <div style={{ display:'flex', alignItems:'center', gap:6, padding:'7px 10px', background:'#fef2f2', border:'1px solid #fecaca', borderRadius:8, marginTop:6, fontSize:12, color:'#dc2626', fontWeight:700 }}>
+   <FlagIcon active={true} size={12} /> Difficult client — handle with care
+ </div>
+ )}
 
  <label style={lbl}>Email (optional)</label>
  <input style={inp} type="email" value={form.email} onChange={e => setForm({...form, email:e.target.value})} placeholder="e.g. ngoc@email.com" />
@@ -1485,9 +1611,14 @@ await axios.put(API + '/api/bookings/' + editingId, {
  <div style={{ display:'flex', gap:10, marginTop:20, flexWrap:'wrap' }}>
  <button onClick={handleSave} style={{...btnPrimary, flex:1}}>Save Booking</button>
  {editingId && (
- <button onClick={() => {
+ <button onClick={async () => {
  const b = bookings.find(b => b.id === editingId)
  setShowBooking(false)
+ let loyaltyAmt = 0
+ if (b?.customers?.loyalty_discount_active) {
+   try { const r = await axios.get(API + '/api/settings/loyalty_discount'); loyaltyAmt = parseFloat(r.data?.value || '0') || 0 } catch (_) {}
+ }
+ setCheckoutLoyaltyDiscount(loyaltyAmt)
  setCheckoutBooking(b)
  setShowCheckout(true)
  }} style={{...btnGreen, flex:1}}>Checkout</button>
