@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import Analytics from './Analytics'
 import orbitLogo from './assets/orbit-logo.png'
 import FullCalendar from '@fullcalendar/react'
@@ -804,6 +805,7 @@ function MainApp({ salon, onLogout }) {
  const [techNotes, setTechNotes] = useState({})
  const [calDate, setCalDate] = useState(() => new Date().toISOString().slice(0, 10))
  const [openBubbleDate, setOpenBubbleDate] = useState(null)
+ const [bubblePos, setBubblePos] = useState(null)
  const [calView, setCalView] = useState('resourceTimeGridDay')
  const [phoneMatches, setPhoneMatches] = useState([])
  const [clientNotes, setClientNotes] = useState('')
@@ -865,7 +867,7 @@ function MainApp({ salon, onLogout }) {
  // Close month bubble dropdown when clicking outside
  useEffect(() => {
  if (!openBubbleDate) return
- function close() { setOpenBubbleDate(null) }
+ function close() { setOpenBubbleDate(null); setBubblePos(null) }
  document.addEventListener('click', close)
  return () => document.removeEventListener('click', close)
  }, [openBubbleDate])
@@ -1329,30 +1331,22 @@ await axios.put(API + '/api/bookings/' + editingId, {
        <span style={{ fontWeight:700, fontSize:13, color:'#0f172a', marginBottom:6 }}>{arg.dayNumberText}</span>
        {dayBks.length > 0 && (
          <button
-           onClick={e => { bubbleClickRef.current = true; e.stopPropagation(); setOpenBubbleDate(isOpen ? null : dateStr) }}
+           onClick={e => {
+             bubbleClickRef.current = true
+             e.stopPropagation()
+             if (isOpen) {
+               setOpenBubbleDate(null)
+               setBubblePos(null)
+             } else {
+               const rect = e.currentTarget.getBoundingClientRect()
+               setOpenBubbleDate(dateStr)
+               setBubblePos({ top: rect.bottom + 4, left: rect.left })
+             }
+           }}
            style={{ alignSelf:'center', background:'#0f172a', color:'#fff', border:'none', borderRadius:20, padding:'2px 10px', fontSize:11, fontWeight:700, cursor:'pointer', lineHeight:'18px', whiteSpace:'nowrap' }}
          >
            {dayBks.length} {dayBks.length === 1 ? 'Appt' : 'Appts'}
          </button>
-       )}
-       {isOpen && (
-         <div
-           onClick={e => { bubbleClickRef.current = true; e.stopPropagation() }}
-           style={{ width:'100%', background:'#fff', border:'1px solid #e2e8f0', borderRadius:10, boxShadow:'0 8px 24px rgba(0,0,0,0.15)', overflow:'hidden', marginTop:4, position:'relative', zIndex:200 }}
-         >
-           {dayBks.map((bk, i) => (
-             <button
-               key={bk.id}
-               onClick={e => { bubbleClickRef.current = true; e.stopPropagation(); openEditFromBooking(bk) }}
-               style={{ width:'100%', textAlign:'left', padding:'8px 12px', background:'none', border:'none', borderBottom: i < dayBks.length - 1 ? '1px solid #f1f5f9' : 'none', cursor:'pointer', display:'block' }}
-             >
-               <div style={{ fontWeight:700, fontSize:12, color:'#0f172a' }}>
-                 {new Date(bk.start_time).toLocaleTimeString('en-GB', { hour:'2-digit', minute:'2-digit' })} · {bk.customers?.full_name || 'Guest'}
-               </div>
-               {bk.services?.name && <div style={{ fontSize:11, color:'#64748b', marginTop:1 }}>{bk.services.name}</div>}
-             </button>
-           ))}
-         </div>
        )}
      </div>
    )
@@ -1612,6 +1606,33 @@ await axios.put(API + '/api/bookings/' + editingId, {
  </div>
  </Modal>
  )}
+
+ {/* Month view bubble dropdown portal — renders on document.body so it never affects calendar cell layout */}
+ {openBubbleDate && bubblePos && (() => {
+   const portalBks = bookings
+     .filter(b => b.start_time && b.status !== 'cancelled' && new Date(b.start_time).toLocaleDateString('sv-SE') === openBubbleDate)
+     .sort((a, b) => a.start_time < b.start_time ? -1 : 1)
+   return createPortal(
+     <div
+       onClick={e => { bubbleClickRef.current = true; e.stopPropagation() }}
+       style={{ position:'fixed', top: bubblePos.top, left: bubblePos.left, zIndex:9000, background:'#fff', border:'1px solid #e2e8f0', borderRadius:10, boxShadow:'0 8px 24px rgba(0,0,0,0.18)', overflow:'hidden', minWidth:200, maxWidth:280 }}
+     >
+       {portalBks.map((bk, i) => (
+         <button
+           key={bk.id}
+           onClick={e => { bubbleClickRef.current = true; e.stopPropagation(); setOpenBubbleDate(null); setBubblePos(null); openEditFromBooking(bk) }}
+           style={{ width:'100%', textAlign:'left', padding:'8px 12px', background:'none', border:'none', borderBottom: i < portalBks.length - 1 ? '1px solid #f1f5f9' : 'none', cursor:'pointer', display:'block' }}
+         >
+           <div style={{ fontWeight:700, fontSize:12, color:'#0f172a' }}>
+             {new Date(bk.start_time).toLocaleTimeString('en-GB', { hour:'2-digit', minute:'2-digit' })} · {bk.customers?.full_name || 'Guest'}
+           </div>
+           {bk.services?.name && <div style={{ fontSize:11, color:'#64748b', marginTop:1 }}>{bk.services.name}</div>}
+         </button>
+       ))}
+     </div>,
+     document.body
+   )
+ })()}
  </div>
  )
 }
