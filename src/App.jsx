@@ -804,6 +804,8 @@ function MainApp({ salon, onLogout }) {
  const [calDate, setCalDate] = useState(() => new Date().toISOString().slice(0, 10))
  const [openBubbleDate, setOpenBubbleDate] = useState(null)
  const [calView, setCalView] = useState('resourceTimeGridDay')
+ const [phoneMatches, setPhoneMatches] = useState([])
+ const [clientNotes, setClientNotes] = useState('')
 
  const emptyForm = { full_name:'', phone:'', email:'', technician_id:'', service_ids:[], start_time:'', notes:'' }
  const [form, setForm] = useState(emptyForm)
@@ -982,6 +984,27 @@ function MainApp({ salon, onLogout }) {
    notes: bk.notes || '',
  })
  setShowBooking(true)
+ }
+
+ // Phone lookup — fires when phone field changes
+ async function handlePhoneChange(value) {
+ setForm(f => ({ ...f, phone: value }))
+ if (value.replace(/\D/g, '').length < 3) { setPhoneMatches([]); return }
+ try {
+   const { data } = await axios.get(API + '/api/customers?search=' + encodeURIComponent(value))
+   setPhoneMatches(Array.isArray(data) ? data.slice(0, 6) : [])
+ } catch (_) { setPhoneMatches([]) }
+ }
+
+ // Select a customer from the phone dropdown
+ async function selectCustomer(c) {
+ setForm(f => ({ ...f, full_name: c.full_name, phone: c.phone }))
+ setPhoneMatches([])
+ // Fetch full profile for client notes
+ try {
+   const { data } = await axios.get(API + '/api/customers/' + c.id)
+   setClientNotes(data?.client_notes || data?.notes || '')
+ } catch (_) { setClientNotes('') }
  }
 
  // Save booking
@@ -1377,12 +1400,25 @@ await axios.put(API + '/api/bookings/' + editingId, {
  )}
 
  {showBooking && (
- <Modal title={editingId ? 'Edit Booking' : 'New Booking'} onClose={() => setShowBooking(false)}>
+ <Modal title={editingId ? 'Edit Booking' : 'New Booking'} onClose={() => { setShowBooking(false); setPhoneMatches([]); setClientNotes('') }}>
+ <label style={lbl}>Phone *</label>
+ <div style={{ position:'relative' }}>
+ <input style={inp} type="tel" value={form.phone} onChange={e => handlePhoneChange(e.target.value)} placeholder="e.g. 0912 345 678" autoComplete="off" />
+ {phoneMatches.length > 0 && (
+   <div style={{ position:'absolute', top:'100%', left:0, right:0, zIndex:300, background:'#fff', border:'1px solid #e2e8f0', borderRadius:10, boxShadow:'0 8px 24px rgba(0,0,0,0.12)', overflow:'hidden', marginTop:2 }}>
+     {phoneMatches.map(c => (
+       <button key={c.id} onClick={() => selectCustomer(c)}
+         style={{ width:'100%', textAlign:'left', padding:'9px 14px', background:'none', border:'none', borderBottom:'1px solid #f1f5f9', cursor:'pointer', display:'block' }}>
+         <div style={{ fontWeight:700, fontSize:13, color:'#0f172a' }}>{c.full_name}</div>
+         <div style={{ fontSize:11, color:'#64748b', marginTop:1 }}>{c.phone}</div>
+       </button>
+     ))}
+   </div>
+ )}
+ </div>
+
  <label style={lbl}>Client Name *</label>
  <input style={inp} value={form.full_name} onChange={e => setForm({...form, full_name:e.target.value})} placeholder="e.g. Ngoc Anh" />
-
- <label style={lbl}>Phone *</label>
- <input style={inp} type="tel" value={form.phone} onChange={e => setForm({...form, phone:e.target.value})} placeholder="e.g. 0912 345 678" />
 
  <label style={lbl}>Email (optional)</label>
  <input style={inp} type="email" value={form.email} onChange={e => setForm({...form, email:e.target.value})} placeholder="e.g. ngoc@email.com" />
@@ -1392,6 +1428,13 @@ await axios.put(API + '/api/bookings/' + editingId, {
  <option value=''>Select technician…</option>
  {technicians.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
  </select>
+
+ {clientNotes && (
+ <div style={{ marginTop:10, padding:'10px 12px', background:'#fffbeb', borderRadius:8, border:'1px solid #fde68a' }}>
+   <div style={{ fontSize:10, fontWeight:800, color:'#92400e', textTransform:'uppercase', letterSpacing:0.8, marginBottom:4 }}>Client Notes</div>
+   <div style={{ fontSize:13, color:'#78350f', whiteSpace:'pre-wrap' }}>{clientNotes}</div>
+ </div>
+ )}
 
  <label style={lbl}>Service *</label>
  <input
