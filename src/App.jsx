@@ -802,6 +802,8 @@ function MainApp({ salon, onLogout }) {
  const [svcSearch, setSvcSearch] = useState('')
  const [techNotes, setTechNotes] = useState({})
  const [calDate, setCalDate] = useState(() => new Date().toISOString().slice(0, 10))
+ const [openBubbleDate, setOpenBubbleDate] = useState(null)
+ const [calView, setCalView] = useState('resourceTimeGridDay')
 
  const emptyForm = { full_name:'', phone:'', email:'', technician_id:'', service_ids:[], start_time:'', notes:'' }
  const [form, setForm] = useState(emptyForm)
@@ -857,6 +859,14 @@ function MainApp({ salon, onLogout }) {
  await axios.post(API + `/api/settings/tech_note_${techId}_${date}`, { value }).catch(() => {})
  }
 
+ // Close month bubble dropdown when clicking outside
+ useEffect(() => {
+ if (!openBubbleDate) return
+ function close() { setOpenBubbleDate(null) }
+ document.addEventListener('click', close)
+ return () => document.removeEventListener('click', close)
+ }, [openBubbleDate])
+
  // Calendar resources & events
  const resources = technicians.map(t => ({ id: t.id, title: t.name }))
 
@@ -901,10 +911,13 @@ function MainApp({ salon, onLogout }) {
 
  // Date / slot click handlers
  function handleDateClick(info) {
- // In month view: navigate to that day instead of auto-switching view
  const api = calRef.current?.getApi()
  if (api?.view.type === 'dayGridMonth') {
-   api.changeView('resourceTimeGridDay', info.dateStr)
+   // Open create modal with date pre-filled; user stays in month view
+   setEditingId(null)
+   setSvcSearch('')
+   setForm({ ...emptyForm, start_time: info.dateStr + 'T10:00' })
+   setShowBooking(true)
  }
  }
 
@@ -949,7 +962,33 @@ function MainApp({ salon, onLogout }) {
  setShowBooking(true)
  }
 
- // Save booking 
+ // Open edit modal from a raw booking object (used by month view bubble)
+ async function openEditFromBooking(bk) {
+ setOpenBubbleDate(null)
+ if (bk.status === 'completed') {
+   let receiptData = null
+   try { const r = await axios.get(API + '/api/checkouts/' + bk.id); receiptData = r.data } catch (_) {}
+   setCheckoutReceiptData(receiptData)
+   setCheckoutBooking(bk)
+   setShowCheckout(true)
+   return
+ }
+ setEditingId(bk.id)
+ setSvcSearch('')
+ const rawIds = bk.service_ids?.length ? bk.service_ids : (bk.service_id ? [bk.service_id] : [])
+ setForm({
+   full_name: bk.customers?.full_name || '',
+   phone: bk.customers?.phone || '',
+   email: bk.customers?.email || '',
+   technician_id: bk.technician_id,
+   service_ids: rawIds.filter(id => id && typeof id === 'string'),
+   start_time: bk.start_time ? new Date(bk.start_time).toLocaleString('sv-SE', { timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone }).slice(0,16).replace(' ', 'T') : '',
+   notes: bk.notes || '',
+ })
+ setShowBooking(true)
+ }
+
+ // Save booking
  async function handleSave() {
  if (!form.full_name.trim()) { alert('Please enter the client name.'); return }
  if (!form.phone.trim()) { alert('Please enter a phone number.'); return }
@@ -1224,7 +1263,8 @@ await axios.put(API + '/api/bookings/' + editingId, {
  .fc .fc-col-header-cell { font-weight: 800; font-size: 13px; padding: 6px 0; }
  .fc .fc-timegrid-slot-label { font-size: 11px; color: #94a3b8; }
  .fc .fc-daygrid-day-number { font-weight: 700; }
- .fc .fc-daygrid-day-events { max-height: 110px; overflow-y: auto; }
+ .fc .fc-daygrid-day-events { display: none !important; }
+ .fc .fc-daygrid-day-top { flex-direction: row; }
  ${closedDayNames.map(d => `.fc .fc-day[data-dow="${d}"] { background: #f1f5f9 !important; opacity: 0.6; }`).join('\n')}
  `}</style>
  <FullCalendar
@@ -1245,14 +1285,55 @@ await axios.put(API + '/api/bookings/' + editingId, {
  slotDuration="00:30:00"
  snapDuration="00:05:00"
  allDaySlot={false}
- dayMaxEvents={false}
  height="auto"
  headerToolbar={{ left:'prev,next today', center:'title', right:'resourceTimeGridDay,dayGridMonth' }}
  buttonText={{ today:'Today', resourceTimeGridDay:'Day', dayGridMonth:'Month' }}
  datesSet={(info) => {
+   setCalView(info.view.type)
    if (info.view.type === 'resourceTimeGridDay') {
      setCalDate(info.startStr.slice(0, 10))
    }
+ }}
+ dayCellContent={(arg) => {
+   const dateStr = arg.date.toLocaleDateString('sv-SE')
+   const dayBks = bookings
+     .filter(b => b.start_time && b.status !== 'cancelled' && new Date(b.start_time).toLocaleDateString('sv-SE') === dateStr)
+     .sort((a, b) => a.start_time < b.start_time ? -1 : 1)
+   const isOpen = openBubbleDate === dateStr
+   return (
+     <div style={{ width:'100%', minHeight:70, padding:'4px 4px 0' }}>
+       <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:4 }}>
+         <span style={{ fontWeight:700, fontSize:13, color:'#0f172a' }}>{arg.dayNumberText}</span>
+         {dayBks.length > 0 && (
+           <button
+             onClick={e => { e.stopPropagation(); setOpenBubbleDate(isOpen ? null : dateStr) }}
+             style={{ background:'#0f172a', color:'#fff', border:'none', borderRadius:20, padding:'2px 10px', fontSize:11, fontWeight:700, cursor:'pointer', lineHeight:'18px', whiteSpace:'nowrap' }}
+           >
+             {dayBks.length} {dayBks.length === 1 ? 'Appt' : 'Appts'}
+           </button>
+         )}
+       </div>
+       {isOpen && (
+         <div
+           onClick={e => e.stopPropagation()}
+           style={{ background:'#fff', border:'1px solid #e2e8f0', borderRadius:10, boxShadow:'0 8px 24px rgba(0,0,0,0.15)', overflow:'hidden', position:'relative', zIndex:200 }}
+         >
+           {dayBks.map((bk, i) => (
+             <button
+               key={bk.id}
+               onClick={e => { e.stopPropagation(); openEditFromBooking(bk) }}
+               style={{ width:'100%', textAlign:'left', padding:'8px 12px', background:'none', border:'none', borderBottom: i < dayBks.length - 1 ? '1px solid #f1f5f9' : 'none', cursor:'pointer', display:'block' }}
+             >
+               <div style={{ fontWeight:700, fontSize:12, color:'#0f172a' }}>
+                 {new Date(bk.start_time).toLocaleTimeString('en-GB', { hour:'2-digit', minute:'2-digit' })} · {bk.customers?.full_name || 'Guest'}
+               </div>
+               {bk.services?.name && <div style={{ fontSize:11, color:'#64748b', marginTop:1 }}>{bk.services.name}</div>}
+             </button>
+           ))}
+         </div>
+       )}
+     </div>
+   )
  }}
  resourceLabelContent={(info) => {
    const techId = info.resource.id
