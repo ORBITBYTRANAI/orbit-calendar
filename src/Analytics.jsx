@@ -147,27 +147,12 @@ export default function Analytics() {
       revenueByTechnician: revByTechArr,
     }
     try {
-      const res = await fetch('https://api.anthropic.com/v1/messages', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          model: 'claude-sonnet-4-20250514',
-          max_tokens: 1000,
-          messages: [{
-            role: 'user',
-            content: `You are a nail salon business advisor. Based on this salon performance data, give 3-4 specific, actionable recommendations to help the owner grow bookings and improve revenue. Include insights from both booking patterns and revenue data — identify which services and technicians generate the most value, flag any underperformance, and suggest practical ways to grow.
-
-Salon data:
-${JSON.stringify(summary, null, 2)}
-
-Format your response as a numbered list. Each point should be 2-3 sentences. Be specific and practical.`
-          }]
-        })
-      })
-      const data = await res.json()
-      setAiRec(data.content?.[0]?.text || 'Unable to generate recommendations.')
-    } catch(_) {
-      setAiRec('Unable to generate recommendations at this time.')
+      const res = await axios.post(API + '/api/ai/recommendations', { summary })
+      setAiRec(res.data?.text || 'Unable to generate recommendations.')
+    } catch(err) {
+      console.error('AI recommendations failed:', err.response?.data || err.message)
+      const detail = err.response?.data?.error || err.message || 'Unknown error'
+      setAiRec(`Unable to generate recommendations: ${detail}`)
     }
     setAiLoading(false)
   }
