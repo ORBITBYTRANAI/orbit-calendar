@@ -913,11 +913,7 @@ function MainApp({ salon, onLogout }) {
  function handleDateClick(info) {
  const api = calRef.current?.getApi()
  if (api?.view.type === 'dayGridMonth') {
-   // Open create modal with date pre-filled; user stays in month view
-   setEditingId(null)
-   setSvcSearch('')
-   setForm({ ...emptyForm, start_time: info.dateStr + 'T10:00' })
-   setShowBooking(true)
+   api.changeView('resourceTimeGridDay', info.dateStr)
  }
  }
 
@@ -1295,28 +1291,28 @@ await axios.put(API + '/api/bookings/' + editingId, {
    }
  }}
  dayCellContent={(arg) => {
+   // Only show bubbles in month view — day view uses resourceLabelContent for column headers
+   if (calView !== 'dayGridMonth') return <span>{arg.dayNumberText}</span>
    const dateStr = arg.date.toLocaleDateString('sv-SE')
    const dayBks = bookings
      .filter(b => b.start_time && b.status !== 'cancelled' && new Date(b.start_time).toLocaleDateString('sv-SE') === dateStr)
      .sort((a, b) => a.start_time < b.start_time ? -1 : 1)
    const isOpen = openBubbleDate === dateStr
    return (
-     <div style={{ width:'100%', minHeight:70, padding:'4px 4px 0' }}>
-       <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:4 }}>
-         <span style={{ fontWeight:700, fontSize:13, color:'#0f172a' }}>{arg.dayNumberText}</span>
-         {dayBks.length > 0 && (
-           <button
-             onClick={e => { e.stopPropagation(); setOpenBubbleDate(isOpen ? null : dateStr) }}
-             style={{ background:'#0f172a', color:'#fff', border:'none', borderRadius:20, padding:'2px 10px', fontSize:11, fontWeight:700, cursor:'pointer', lineHeight:'18px', whiteSpace:'nowrap' }}
-           >
-             {dayBks.length} {dayBks.length === 1 ? 'Appt' : 'Appts'}
-           </button>
-         )}
-       </div>
+     <div style={{ width:'100%', minHeight:70, padding:'4px 4px 0', display:'flex', flexDirection:'column', alignItems:'flex-start' }}>
+       <span style={{ fontWeight:700, fontSize:13, color:'#0f172a', marginBottom:6 }}>{arg.dayNumberText}</span>
+       {dayBks.length > 0 && (
+         <button
+           onClick={e => { e.stopPropagation(); setOpenBubbleDate(isOpen ? null : dateStr) }}
+           style={{ alignSelf:'center', background:'#0f172a', color:'#fff', border:'none', borderRadius:20, padding:'2px 10px', fontSize:11, fontWeight:700, cursor:'pointer', lineHeight:'18px', whiteSpace:'nowrap' }}
+         >
+           {dayBks.length} {dayBks.length === 1 ? 'Appt' : 'Appts'}
+         </button>
+       )}
        {isOpen && (
          <div
            onClick={e => e.stopPropagation()}
-           style={{ background:'#fff', border:'1px solid #e2e8f0', borderRadius:10, boxShadow:'0 8px 24px rgba(0,0,0,0.15)', overflow:'hidden', position:'relative', zIndex:200 }}
+           style={{ width:'100%', background:'#fff', border:'1px solid #e2e8f0', borderRadius:10, boxShadow:'0 8px 24px rgba(0,0,0,0.15)', overflow:'hidden', marginTop:4, position:'relative', zIndex:200 }}
          >
            {dayBks.map((bk, i) => (
              <button
