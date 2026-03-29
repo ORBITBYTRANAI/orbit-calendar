@@ -778,6 +778,7 @@ function SignupPage({ onLogin, onBack }) {
 // Main App (authenticated)
 function MainApp({ salon, onLogout }) {
  const calRef = useRef(null)
+ const bubbleClickRef = useRef(false) // prevents dateClick from navigating when bubble is clicked
 
  const [bookings, setBookings] = useState([])
  const [technicians, setTechnicians] = useState([])
@@ -913,6 +914,8 @@ function MainApp({ salon, onLogout }) {
 
  // Date / slot click handlers
  function handleDateClick(info) {
+ // Bubble button sets this flag so its click doesn't also trigger navigation
+ if (bubbleClickRef.current) { bubbleClickRef.current = false; return }
  const api = calRef.current?.getApi()
  if (api?.view.type === 'dayGridMonth') {
    api.changeView('resourceTimeGridDay', info.dateStr)
@@ -1326,7 +1329,7 @@ await axios.put(API + '/api/bookings/' + editingId, {
        <span style={{ fontWeight:700, fontSize:13, color:'#0f172a', marginBottom:6 }}>{arg.dayNumberText}</span>
        {dayBks.length > 0 && (
          <button
-           onClick={e => { e.stopPropagation(); setOpenBubbleDate(isOpen ? null : dateStr) }}
+           onClick={e => { bubbleClickRef.current = true; e.stopPropagation(); setOpenBubbleDate(isOpen ? null : dateStr) }}
            style={{ alignSelf:'center', background:'#0f172a', color:'#fff', border:'none', borderRadius:20, padding:'2px 10px', fontSize:11, fontWeight:700, cursor:'pointer', lineHeight:'18px', whiteSpace:'nowrap' }}
          >
            {dayBks.length} {dayBks.length === 1 ? 'Appt' : 'Appts'}
@@ -1334,13 +1337,13 @@ await axios.put(API + '/api/bookings/' + editingId, {
        )}
        {isOpen && (
          <div
-           onClick={e => e.stopPropagation()}
+           onClick={e => { bubbleClickRef.current = true; e.stopPropagation() }}
            style={{ width:'100%', background:'#fff', border:'1px solid #e2e8f0', borderRadius:10, boxShadow:'0 8px 24px rgba(0,0,0,0.15)', overflow:'hidden', marginTop:4, position:'relative', zIndex:200 }}
          >
            {dayBks.map((bk, i) => (
              <button
                key={bk.id}
-               onClick={e => { e.stopPropagation(); openEditFromBooking(bk) }}
+               onClick={e => { bubbleClickRef.current = true; e.stopPropagation(); openEditFromBooking(bk) }}
                style={{ width:'100%', textAlign:'left', padding:'8px 12px', background:'none', border:'none', borderBottom: i < dayBks.length - 1 ? '1px solid #f1f5f9' : 'none', cursor:'pointer', display:'block' }}
              >
                <div style={{ fontWeight:700, fontSize:12, color:'#0f172a' }}>
