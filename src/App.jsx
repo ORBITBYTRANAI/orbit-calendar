@@ -1072,7 +1072,7 @@ function MainApp({ salon, onLogout }) {
  const isCompleted = b.status === 'completed'
  const isVisualiser = b.source === 'visualiser'
  let color
- if (isCompleted) color = '#94a3b8'
+ if (isCompleted) color = '#D1D5DB'
  else if (isVisualiser) color = '#1e3a8a'
  else color = b.services?.color || CATEGORY_COLOR[b.services?.category] || '#94a3b8'
 
@@ -1087,7 +1087,7 @@ function MainApp({ salon, onLogout }) {
  end: b.end_time,
  backgroundColor: color,
  borderColor: color,
- textColor: (isCompleted || isVisualiser) ? '#fff' : '#1e293b',
+ textColor: isVisualiser ? '#fff' : '#1e293b',
  editable: !isCompleted,
  extendedProps: b,
  }
@@ -1521,10 +1521,14 @@ await axios.put(API + '/api/bookings/' + editingId, {
  eventContent={(info) => {
    const bk = info.event.extendedProps
    const isDifficult = bk.customers?.difficult_client
+   const rawTime = bk.start_time ? bk.start_time.split('+')[0].split('T')[1]?.slice(0, 5) : ''
+   const name = bk.customers?.full_name || 'Guest'
+   const svc  = bk.services?.name || ''
    return (
-     <div style={{ display:'flex', alignItems:'center', gap:3, overflow:'hidden', height:'100%', padding:'1px 3px', fontSize:'inherit' }}>
+     <div style={{ display:'flex', alignItems:'center', gap:2, overflow:'hidden', height:'100%', padding:'1px 3px', fontSize:'inherit' }}>
+       <span style={{ whiteSpace:'nowrap', flexShrink:0 }}>{rawTime ? rawTime + ' · ' : ''}{name}</span>
        {isDifficult && <FlagIcon active={true} size={10} />}
-       <span style={{ overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{info.event.title}</span>
+       {svc && <span style={{ overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{' · ' + svc}</span>}
      </div>
    )
  }}
