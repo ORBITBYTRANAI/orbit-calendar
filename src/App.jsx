@@ -555,25 +555,31 @@ function ClientDetail({ client, loading, onBack }) {
 
  async function handleSave() {
    setSaving(true)
+   const putPayload   = { full_name: editName, phone: editPhone, email: editEmail }
+   const patchPayload = {
+     difficult_client:          difficult,
+     stars_earned:              stars,
+     loyalty_cycles_completed:  cycles,
+     loyalty_discount_active:   discountActive,
+   }
+   console.log('[ClientDetail] PUT payload →',   putPayload)
+   console.log('[ClientDetail] PATCH payload →', patchPayload)
    try {
-     await Promise.all([
-       axios.put(API + '/api/customers/' + client.id, {
-         full_name: editName, phone: editPhone, email: editEmail,
-       }),
-       axios.patch(API + '/api/customers/' + client.id, {
-         difficult_client: difficult,
-         stars_earned: stars,
-         loyalty_cycles_completed: cycles,
-         loyalty_discount_active: discountActive,
-       }),
+     const [putRes, patchRes] = await Promise.all([
+       axios.put(API + '/api/customers/' + client.id, putPayload),
+       axios.patch(API + '/api/customers/' + client.id, patchPayload),
      ])
+     console.log('[ClientDetail] PUT response ✓',   putRes.data)
+     console.log('[ClientDetail] PATCH response ✓', patchRes.data)
      setBase({
        full_name: editName, phone: editPhone, email: editEmail,
        difficult_client: difficult, stars_earned: stars,
        loyalty_cycles_completed: cycles, loyalty_discount_active: discountActive,
      })
    } catch (err) {
-     console.error('[ClientDetail] save failed:', err?.response?.data || err.message)
+     const detail = err?.response?.data?.error || err?.response?.data || err.message
+     console.error('[ClientDetail] save FAILED — status:', err?.response?.status, 'detail:', detail)
+     alert('Save failed: ' + detail)
    }
    setSaving(false)
  }
