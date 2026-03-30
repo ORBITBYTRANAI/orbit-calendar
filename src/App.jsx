@@ -536,44 +536,44 @@ function ClientDetail({ client, loading, onBack }) {
    setCycles(b.loyalty_cycles_completed); setDiscountActive(b.loyalty_discount_active)
  }, [client])
 
- // Save button only tracks profile field changes
  const dirty =
-   editName  !== base.full_name ||
-   editPhone !== base.phone     ||
-   editEmail !== base.email
+   editName  !== base.full_name        ||
+   editPhone !== base.phone            ||
+   editEmail !== base.email            ||
+   difficult !== base.difficult_client ||
+   stars     !== base.stars_earned
 
- async function clickStar(n) {
+ function clickStar(n) {
    let newStars = n, newCycles = cycles, newDiscount = discountActive
    if (n === 5) { newStars = 0; newCycles = cycles + 1; newDiscount = true }
    setStars(newStars); setCycles(newCycles); setDiscountActive(newDiscount)
-   const payload = { stars_earned: newStars, loyalty_cycles_completed: newCycles, loyalty_discount_active: newDiscount }
-   console.log('[ClientDetail] star PATCH →', payload)
-   axios.patch(API + '/api/customers/' + client.id, payload)
-     .then(r  => console.log('[ClientDetail] star PATCH ✓', r.data))
-     .catch(e => console.error('[ClientDetail] star PATCH ✗', e?.response?.data || e.message))
  }
 
- async function toggleDifficult() {
-   const next = !difficult
-   setDifficult(next)
-   const payload = { difficult_client: next }
-   console.log('[ClientDetail] flag PATCH →', payload)
-   axios.patch(API + '/api/customers/' + client.id, payload)
-     .then(r  => console.log('[ClientDetail] flag PATCH ✓', r.data))
-     .catch(e => console.error('[ClientDetail] flag PATCH ✗', e?.response?.data || e.message))
+ function toggleDifficult() {
+   setDifficult(d => !d)
  }
 
  async function handleSave() {
    setSaving(true)
    try {
-     console.log('[ClientDetail] profile PUT →', { full_name: editName, phone: editPhone, email: editEmail })
-     await axios.put(API + '/api/customers/' + client.id, {
+     await Promise.all([
+       axios.put(API + '/api/customers/' + client.id, {
+         full_name: editName, phone: editPhone, email: editEmail,
+       }),
+       axios.patch(API + '/api/customers/' + client.id, {
+         difficult_client: difficult,
+         stars_earned: stars,
+         loyalty_cycles_completed: cycles,
+         loyalty_discount_active: discountActive,
+       }),
+     ])
+     setBase({
        full_name: editName, phone: editPhone, email: editEmail,
+       difficult_client: difficult, stars_earned: stars,
+       loyalty_cycles_completed: cycles, loyalty_discount_active: discountActive,
      })
-     setBase(b => ({ ...b, full_name: editName, phone: editPhone, email: editEmail }))
-     console.log('[ClientDetail] profile PUT ✓')
    } catch (err) {
-     console.error('[ClientDetail] profile PUT ✗', err?.response?.data || err.message)
+     console.error('[ClientDetail] save failed:', err?.response?.data || err.message)
    }
    setSaving(false)
  }
