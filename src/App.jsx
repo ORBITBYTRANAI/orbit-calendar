@@ -89,6 +89,7 @@ function CheckoutModal({ booking, services, onClose, onComplete, receiptData, co
  const [loading, setLoading] = useState(false)
  const [done, setDone] = useState(initDone)
  const [sendingEmail, setSendingEmail] = useState(false)
+ const [receiptSent, setReceiptSent] = useState(false)
 
  const splitTotal = splits.reduce((s, p) => s + (parseFloat(p.amount) || 0), 0)
  const remaining = parseFloat((total - splitTotal).toFixed(2))
@@ -170,7 +171,8 @@ function CheckoutModal({ booking, services, onClose, onComplete, receiptData, co
      payments:       splits,
      total,
    })
-   alert('Receipt sent!')
+   setReceiptSent(true)
+   setTimeout(() => setReceiptSent(false), 3000)
  } catch (err) {
    alert('Failed to send receipt: ' + (err.response?.data?.error || err.message))
  }
@@ -220,9 +222,11 @@ function CheckoutModal({ booking, services, onClose, onComplete, receiptData, co
  <div style={{ display:'flex', gap:10 }}>
  <button onClick={printReceipt} style={{ ...btnPrimary, flex:1 }}> Print Receipt</button>
  {booking.customers?.email && (
-   <button onClick={emailReceipt} disabled={sendingEmail} style={{ ...btnGhost, flex:1, opacity: sendingEmail ? 0.7 : 1 }}>
-     {sendingEmail ? 'Sending…' : ' Send Receipt'}
-   </button>
+   receiptSent
+     ? <div style={{ flex:1, textAlign:'center', fontSize:13, fontWeight:700, color:'#059669', padding:'11px 0' }}>Receipt sent!</div>
+     : <button onClick={emailReceipt} disabled={sendingEmail} style={{ ...btnGhost, flex:1, opacity: sendingEmail ? 0.7 : 1 }}>
+         {sendingEmail ? 'Sending…' : ' Email Receipt'}
+       </button>
  )}
  <button onClick={() => onComplete(booking.id, true)} style={{ ...btnGhost, padding:'11px 14px' }}>Close</button>
  </div>
@@ -1219,15 +1223,16 @@ ${closedDayNames.map(d => `.fc .fc-day[data-dow="${d}"] { background: #f1f5f9 !i
 
  // Select a customer from the phone dropdown
  async function selectCustomer(c) {
- setForm(f => ({ ...f, full_name: c.full_name, phone: c.phone }))
+ setForm(f => ({ ...f, full_name: c.full_name, phone: c.phone, email: c.email || '' }))
  setPhoneMatches([])
  // Set difficult flag immediately from list data while full profile loads
  setClientDifficult(c.difficult_client || false)
- // Fetch full profile for client notes + authoritative difficult flag
+ // Fetch full profile for client notes, authoritative difficult flag, and email
  try {
    const { data } = await axios.get(API + '/api/customers/' + c.id)
    setClientNotes(data?.client_notes || data?.notes || '')
    setClientDifficult(data?.difficult_client || false)
+   if (data?.email) setForm(f => ({ ...f, email: data.email }))
  } catch (_) { setClientNotes('') }
  }
 
@@ -1513,6 +1518,16 @@ await axios.put(API + '/api/bookings/' + editingId, {
  allDaySlot={false}
  height="auto"
  headerToolbar={{ left:'prev,next today', center:'title', right:'resourceTimeGridDay,dayGridMonth' }}
+ eventContent={(info) => {
+   const bk = info.event.extendedProps
+   const isDifficult = bk.customers?.difficult_client
+   return (
+     <div style={{ display:'flex', alignItems:'center', gap:3, overflow:'hidden', height:'100%', padding:'1px 3px', fontSize:'inherit' }}>
+       {isDifficult && <FlagIcon active={true} size={10} />}
+       <span style={{ overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{info.event.title}</span>
+     </div>
+   )
+ }}
  buttonText={{ today:'Today', resourceTimeGridDay:'Day', dayGridMonth:'Month' }}
  datesSet={(info) => {
    setCalView(info.view.type)
