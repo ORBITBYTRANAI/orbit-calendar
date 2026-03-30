@@ -88,6 +88,7 @@ function CheckoutModal({ booking, services, onClose, onComplete, receiptData, co
  const [notes, setNotes] = useState(initNotes)
  const [loading, setLoading] = useState(false)
  const [done, setDone] = useState(initDone)
+ const [sendingEmail, setSendingEmail] = useState(false)
 
  const splitTotal = splits.reduce((s, p) => s + (parseFloat(p.amount) || 0), 0)
  const remaining = parseFloat((total - splitTotal).toFixed(2))
@@ -155,14 +156,25 @@ function CheckoutModal({ booking, services, onClose, onComplete, receiptData, co
  setTimeout(() => { w.print(); w.close() }, 300)
  }
 
- function emailReceipt() {
+ async function emailReceipt() {
  const email = booking.customers?.email
- if (!email) { alert('No email address on file for this client.'); return }
- const subject = encodeURIComponent(`Your receipt from Orbit — ${receiptId}`)
- const body = encodeURIComponent(
- `Hi ${booking.customers?.full_name || 'there'},\n\nThank you for your visit!\n\nService: ${svc?.name || '—'}\nTechnician: ${booking.technicians?.name || '—'}\nDate: ${new Date(booking.start_time).toLocaleString('en-GB')}\nTotal: £${total.toFixed(2)}\n\nReceipt ID: ${receiptId}\n\nThank you!`
- )
- window.open(`mailto:${email}?subject=${subject}&body=${body}`)
+ if (!email) return
+ setSendingEmail(true)
+ try {
+   await axios.post(API + '/api/email-receipt', {
+     to:             email,
+     customerName:   booking.customers?.full_name || 'Guest',
+     serviceNames:   selectedSvcs.length > 0 ? selectedSvcs.map(s => s.name) : [svc?.name || '—'],
+     technicianName: booking.technicians?.name || '—',
+     startTime:      booking.start_time,
+     payments:       splits,
+     total,
+   })
+   alert('Receipt sent!')
+ } catch (err) {
+   alert('Failed to send receipt: ' + (err.response?.data?.error || err.message))
+ }
+ setSendingEmail(false)
  }
 
  return (
@@ -207,7 +219,11 @@ function CheckoutModal({ booking, services, onClose, onComplete, receiptData, co
  </div>
  <div style={{ display:'flex', gap:10 }}>
  <button onClick={printReceipt} style={{ ...btnPrimary, flex:1 }}> Print Receipt</button>
- <button onClick={emailReceipt} style={{ ...btnGhost, flex:1 }}> Email</button>
+ {booking.customers?.email && (
+   <button onClick={emailReceipt} disabled={sendingEmail} style={{ ...btnGhost, flex:1, opacity: sendingEmail ? 0.7 : 1 }}>
+     {sendingEmail ? 'Sending…' : ' Send Receipt'}
+   </button>
+ )}
  <button onClick={() => onComplete(booking.id, true)} style={{ ...btnGhost, padding:'11px 14px' }}>Close</button>
  </div>
  </div>
@@ -1025,7 +1041,11 @@ function MainApp({ salon, onLogout }) {
 
  async function saveTechNote(techId, date, value) {
  setTechNotes(prev => ({ ...prev, [`${techId}_${date}`]: value }))
- await axios.post(API + `/api/settings/tech_note_${techId}_${date}`, { value }).catch(() => {})
+ try {
+   await axios.post(API + `/api/settings/tech_note_${techId}_${date}`, { value })
+ } catch (err) {
+   console.error('Tech note save failed:', err.response?.data || err.message)
+ }
  }
 
  // Close month bubble dropdown when clicking outside
@@ -1540,10 +1560,10 @@ await axios.put(API + '/api/bookings/' + editingId, {
      <div style={{ display:'flex', flexDirection:'column', gap:3, padding:'2px 4px' }}>
        <span style={{ fontWeight:800 }}>{info.resource.title}</span>
        <input
+         key={techNotes[noteKey] !== undefined ? noteKey : 'pending_' + noteKey}
          style={{ fontSize:10, color:'#64748b', border:'none', borderBottom:'1px dashed #e2e8f0', background:'transparent', outline:'none', width:'100%', fontFamily:'inherit', padding:'1px 0' }}
          placeholder="Add a note..."
-         value={techNotes[noteKey] ?? ''}
-         onChange={e => setTechNotes(prev => ({ ...prev, [noteKey]: e.target.value }))}
+         defaultValue={techNotes[noteKey] ?? ''}
          onBlur={e => saveTechNote(techId, calDate, e.target.value)}
          onClick={e => e.stopPropagation()}
        />
@@ -1604,7 +1624,7 @@ await axios.put(API + '/api/bookings/' + editingId, {
  </div>
  {clientDifficult && (
  <div style={{ display:'flex', alignItems:'center', gap:6, padding:'7px 10px', background:'#fef2f2', border:'1px solid #fecaca', borderRadius:8, marginTop:6, fontSize:12, color:'#dc2626', fontWeight:700 }}>
-   <FlagIcon active={true} size={12} /> Difficult client — handle with care
+   <FlagIcon active={true} size={12} /> {salon?.country === 'VN' ? 'Khách hàng khó tính — hãy cẩn thận' : 'Difficult client — handle with care'}
  </div>
  )}
 
