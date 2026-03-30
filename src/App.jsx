@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import Analytics from './Analytics'
 import orbitLogo from './assets/orbit-logo.png'
@@ -517,12 +517,13 @@ function ClientDetail({ client, loading, onBack }) {
    setStars(client?.stars_earned || 0)
    setCycles(client?.loyalty_cycles_completed || 0)
    setDiscountActive(client?.loyalty_discount_active || false)
- }, [client?.id])
+ // Depend on entire client object so state syncs when detail loads over stub
+ }, [client])
 
  async function toggleDifficult() {
    const next = !difficult
    setDifficult(next)
-   await axios.patch(API + '/api/customers/' + client.id, { difficult_client: next }).catch(() => {})
+   await axios.patch(API + '/api/customers/' + client.id, { difficult_client: next }).catch(e => console.error('flag patch failed:', e?.response?.data || e.message))
  }
 
  async function clickStar(n) {
@@ -542,7 +543,7 @@ function ClientDetail({ client, loading, onBack }) {
      stars_earned: newStars,
      loyalty_cycles_completed: newCycles,
      loyalty_discount_active: newDiscountActive,
-   }).catch(() => {})
+   }).catch(e => console.error('star patch failed:', e?.response?.data || e.message))
  }
 
  if (loading || !client.bookings) {
@@ -979,15 +980,15 @@ function MainApp({ salon, onLogout }) {
  return () => document.removeEventListener('click', close)
  }, [openBubbleDate])
 
- // Calendar resources & events
- const resources = technicians.map(t => ({ id: t.id, title: t.name }))
+ // Calendar resources & events — memoized so FullCalendar doesn't re-process on unrelated renders
+ const resources = useMemo(() => technicians.map(t => ({ id: t.id, title: t.name })), [technicians])
 
- const closedDayNames = openingHours.filter(h => !h.open).map(h => {
- const idx = DAYS.indexOf(h.day)
- return (idx + 1) % 7
- })
+ const closedDayNames = useMemo(() => openingHours.filter(h => !h.open).map(h => {
+   const idx = DAYS.indexOf(h.day)
+   return (idx + 1) % 7
+ }), [openingHours])
 
- const events = bookings.map(b => {
+ const events = useMemo(() => bookings.map(b => {
  const isCompleted = b.status === 'completed'
  const isVisualiser = b.source === 'visualiser'
  let color
@@ -1010,35 +1011,57 @@ function MainApp({ salon, onLogout }) {
  editable: !isCompleted,
  extendedProps: b,
  }
- })
+ }), [bookings])
 
  // Opening hours → slot range (slotMax extends 1 hr past closing for staff overflow)
- const openDays = openingHours.filter(h => h.open)
- const earliestOpen = openDays.length ? openDays.reduce((a, b) => a.from < b.from ? a : b).from : '09:00'
- const latestClose  = openDays.length ? openDays.reduce((a, b) => a.to > b.to ? a : b).to : '20:00'
- const slotMin = earliestOpen + ':00'
- const [closeH, closeM] = latestClose.split(':').map(Number)
- const overflowH = closeH + 1
- const slotMax = String(overflowH).padStart(2, '0') + ':' + String(closeM).padStart(2, '0') + ':00'
+ const { slotMin, slotMax } = useMemo(() => {
+   const openDays = openingHours.filter(h => h.open)
+   const earliestOpen = openDays.length ? openDays.reduce((a, b) => a.from < b.from ? a : b).from : '09:00'
+   const latestClose  = openDays.length ? openDays.reduce((a, b) => a.to > b.to ? a : b).to : '20:00'
+   const slotMin = earliestOpen + ':00'
+   const [closeH, closeM] = latestClose.split(':').map(Number)
+   const overflowH = closeH + 1
+   const slotMax = String(overflowH).padStart(2, '0') + ':' + String(closeM).padStart(2, '0') + ':00'
+   return { slotMin, slotMax }
+ }, [openingHours])
 
- // Date / slot click handlers
- function handleDateClick(info) {
+ const calendarCss = useMemo(() => `
+.fc .fc-day-today { background: #fff !important; }
+.fc .fc-timegrid-col.fc-day-today { background: #fff !important; }
+.fc .fc-daygrid-day.fc-day-today { background: #fff !important; }
+.fc .fc-timegrid-slot { height: 60px !important; }
+.fc { font-family: ui-sans-serif, system-ui, sans-serif !important; }
+.fc .fc-toolbar-title { font-size: 18px; font-weight: 800; }
+.fc .fc-button { background: #0f172a !important; border-color: #0f172a !important; font-weight: 700 !important; border-radius: 8px !important; }
+.fc .fc-button:hover { background: #1e293b !important; }
+.fc .fc-button-active { background: #334155 !important; border-color: #334155 !important; }
+.fc-event { border-radius: 6px !important; font-size: 12px !important; font-weight: 700 !important; }
+.fc .fc-col-header-cell { font-weight: 800; font-size: 13px; padding: 6px 0; }
+.fc .fc-timegrid-slot-label { font-size: 11px; color: #94a3b8; }
+.fc .fc-daygrid-day-number { font-weight: 700; }
+.fc .fc-daygrid-day-events { display: none !important; }
+.fc .fc-daygrid-day-top { flex-direction: row; }
+${closedDayNames.map(d => `.fc .fc-day[data-dow="${d}"] { background: #f1f5f9 !important; opacity: 0.6; }`).join('\n')}
+`, [closedDayNames])
+
+ // Date / slot click handlers — wrapped in useCallback so FullCalendar gets stable references
+ const handleDateClick = useCallback((info) => {
  // Bubble button sets this flag so its click doesn't also trigger navigation
  if (bubbleClickRef.current) { bubbleClickRef.current = false; return }
  const api = calRef.current?.getApi()
  if (api?.view.type === 'dayGridMonth') {
    api.changeView('resourceTimeGridDay', info.dateStr)
  }
- }
+ }, [])
 
- function openCreate(info) {
+ const openCreate = useCallback((info) => {
  const api = calRef.current?.getApi()
  if (api?.view.type === 'dayGridMonth') return
  setEditingId(null)
  setSvcSearch('')
  setForm({ ...emptyForm, technician_id: info.resource?.id || '', start_time: info.startStr?.slice(0,16) || '' })
  setShowBooking(true)
- }
+ }, [emptyForm])
 
  async function openEdit(info) {
  const b = info.event.extendedProps
@@ -1122,10 +1145,13 @@ function MainApp({ salon, onLogout }) {
  async function selectCustomer(c) {
  setForm(f => ({ ...f, full_name: c.full_name, phone: c.phone }))
  setPhoneMatches([])
- // Fetch full profile for client notes
+ // Set difficult flag immediately from list data while full profile loads
+ setClientDifficult(c.difficult_client || false)
+ // Fetch full profile for client notes + authoritative difficult flag
  try {
    const { data } = await axios.get(API + '/api/customers/' + c.id)
    setClientNotes(data?.client_notes || data?.notes || '')
+   setClientDifficult(data?.difficult_client || false)
  } catch (_) { setClientNotes('') }
  }
 
@@ -1221,18 +1247,18 @@ await axios.put(API + '/api/bookings/' + editingId, {
  await axios.put(API + '/api/bookings/' + editingId, { status: 'no_show' })
  }
 
- async function handleDrop(info) {
+ const handleDrop = useCallback(async (info) => {
  const id = info.event.id, start = info.event.startStr, end = info.event.endStr
  const techId = info.event.getResources()[0]?.id
  setBookings(prev => prev.map(b => b.id !== id ? b : { ...b, start_time: start, end_time: end, technician_id: techId }))
  await axios.put(API + '/api/bookings/' + id, { start_time: start, end_time: end, technician_id: techId })
- }
+ }, [])
 
- async function handleResize(info) {
+ const handleResize = useCallback(async (info) => {
  const id = info.event.id, end = info.event.endStr
  setBookings(prev => prev.map(b => b.id !== id ? b : { ...b, end_time: end }))
  await axios.put(API + '/api/bookings/' + id, { end_time: end })
- }
+ }, [])
 
  // Technician CRUD 
  async function addTechnician() {
@@ -1390,24 +1416,7 @@ await axios.put(API + '/api/bookings/' + editingId, {
  <div style={{ flex:1, overflow:'hidden', display:'flex', flexDirection:'column' }}>
  {view === 'calendar' && (
  <div style={{ flex:1, overflow:'auto', padding:24 }}>
- <style>{`
- .fc .fc-day-today { background: #fff !important; }
- .fc .fc-timegrid-col.fc-day-today { background: #fff !important; }
- .fc .fc-daygrid-day.fc-day-today { background: #fff !important; }
- .fc .fc-timegrid-slot { height: 60px !important; }
- .fc { font-family: ui-sans-serif, system-ui, sans-serif !important; }
- .fc .fc-toolbar-title { font-size: 18px; font-weight: 800; }
- .fc .fc-button { background: #0f172a !important; border-color: #0f172a !important; font-weight: 700 !important; border-radius: 8px !important; }
- .fc .fc-button:hover { background: #1e293b !important; }
- .fc .fc-button-active { background: #334155 !important; border-color: #334155 !important; }
- .fc-event { border-radius: 6px !important; font-size: 12px !important; font-weight: 700 !important; }
- .fc .fc-col-header-cell { font-weight: 800; font-size: 13px; padding: 6px 0; }
- .fc .fc-timegrid-slot-label { font-size: 11px; color: #94a3b8; }
- .fc .fc-daygrid-day-number { font-weight: 700; }
- .fc .fc-daygrid-day-events { display: none !important; }
- .fc .fc-daygrid-day-top { flex-direction: row; }
- ${closedDayNames.map(d => `.fc .fc-day[data-dow="${d}"] { background: #f1f5f9 !important; opacity: 0.6; }`).join('\n')}
- `}</style>
+ <style>{calendarCss}</style>
  <FullCalendar
  ref={calRef}
  plugins={[resourceTimeGridPlugin, dayGridPlugin, interactionPlugin]}
