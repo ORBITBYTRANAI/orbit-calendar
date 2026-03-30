@@ -536,38 +536,44 @@ function ClientDetail({ client, loading, onBack }) {
    setCycles(b.loyalty_cycles_completed); setDiscountActive(b.loyalty_discount_active)
  }, [client])
 
+ // Save button only tracks profile field changes
  const dirty =
-   editName  !== base.full_name        ||
-   editPhone !== base.phone            ||
-   editEmail !== base.email            ||
-   difficult !== base.difficult_client ||
-   stars     !== base.stars_earned
+   editName  !== base.full_name ||
+   editPhone !== base.phone     ||
+   editEmail !== base.email
 
- function clickStar(n) {
+ async function clickStar(n) {
    let newStars = n, newCycles = cycles, newDiscount = discountActive
    if (n === 5) { newStars = 0; newCycles = cycles + 1; newDiscount = true }
    setStars(newStars); setCycles(newCycles); setDiscountActive(newDiscount)
+   const payload = { stars_earned: newStars, loyalty_cycles_completed: newCycles, loyalty_discount_active: newDiscount }
+   console.log('[ClientDetail] star PATCH →', payload)
+   axios.patch(API + '/api/customers/' + client.id, payload)
+     .then(r  => console.log('[ClientDetail] star PATCH ✓', r.data))
+     .catch(e => console.error('[ClientDetail] star PATCH ✗', e?.response?.data || e.message))
+ }
+
+ async function toggleDifficult() {
+   const next = !difficult
+   setDifficult(next)
+   const payload = { difficult_client: next }
+   console.log('[ClientDetail] flag PATCH →', payload)
+   axios.patch(API + '/api/customers/' + client.id, payload)
+     .then(r  => console.log('[ClientDetail] flag PATCH ✓', r.data))
+     .catch(e => console.error('[ClientDetail] flag PATCH ✗', e?.response?.data || e.message))
  }
 
  async function handleSave() {
    setSaving(true)
    try {
-     const profileChanged = editName !== base.full_name || editPhone !== base.phone || editEmail !== base.email
-     const loyaltyChanged = difficult !== base.difficult_client || stars !== base.stars_earned
-     await Promise.all([
-       profileChanged ? axios.put(API + '/api/customers/' + client.id, {
-         full_name: editName, phone: editPhone, email: editEmail,
-       }) : null,
-       loyaltyChanged ? axios.patch(API + '/api/customers/' + client.id, {
-         difficult_client: difficult, stars_earned: stars,
-         loyalty_cycles_completed: cycles, loyalty_discount_active: discountActive,
-       }) : null,
-     ].filter(Boolean))
-     setBase({ full_name: editName, phone: editPhone, email: editEmail,
-       difficult_client: difficult, stars_earned: stars,
-       loyalty_cycles_completed: cycles, loyalty_discount_active: discountActive })
+     console.log('[ClientDetail] profile PUT →', { full_name: editName, phone: editPhone, email: editEmail })
+     await axios.put(API + '/api/customers/' + client.id, {
+       full_name: editName, phone: editPhone, email: editEmail,
+     })
+     setBase(b => ({ ...b, full_name: editName, phone: editPhone, email: editEmail }))
+     console.log('[ClientDetail] profile PUT ✓')
    } catch (err) {
-     console.error('Save failed:', err?.response?.data || err.message)
+     console.error('[ClientDetail] profile PUT ✗', err?.response?.data || err.message)
    }
    setSaving(false)
  }
@@ -610,7 +616,7 @@ function ClientDetail({ client, loading, onBack }) {
  <div style={{ flex:1, minWidth:0 }}>
    <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:4 }}>
      {fieldInput(editName, setEditName, 'Client name', { fontSize:22, fontWeight:900, color:'#0f172a', width:'100%' })}
-     <button onClick={() => setDifficult(d => !d)} title={difficult ? 'Remove difficult flag' : 'Flag as difficult client'}
+     <button onClick={toggleDifficult} title={difficult ? 'Remove difficult flag' : 'Flag as difficult client'}
        style={{ background:'none', border:'none', cursor:'pointer', padding:3, display:'flex', alignItems:'center', flexShrink:0 }}>
        <FlagIcon active={difficult} size={16} />
      </button>
