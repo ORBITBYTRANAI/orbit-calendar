@@ -506,45 +506,77 @@ function InboxView({ country }) {
 
 // Client Detail View
 function ClientDetail({ client, loading, onBack }) {
+ const [editName,  setEditName]  = useState(client?.full_name || '')
+ const [editPhone, setEditPhone] = useState(client?.phone     || '')
+ const [editEmail, setEditEmail] = useState(client?.email     || '')
  const [difficult, setDifficult] = useState(client?.difficult_client || false)
- const [stars, setStars] = useState(client?.stars_earned || 0)
- const [cycles, setCycles] = useState(client?.loyalty_cycles_completed || 0)
+ const [stars, setStars]         = useState(client?.stars_earned || 0)
+ const [cycles, setCycles]       = useState(client?.loyalty_cycles_completed || 0)
  const [discountActive, setDiscountActive] = useState(client?.loyalty_discount_active || false)
+ const [saving, setSaving]       = useState(false)
 
- // Sync local state when client prop changes (e.g. after detail loads)
+ // Track committed baseline so dirty detection works after save without re-fetch
+ const [base, setBase] = useState({
+   full_name: client?.full_name || '', phone: client?.phone || '', email: client?.email || '',
+   difficult_client: client?.difficult_client || false, stars_earned: client?.stars_earned || 0,
+   loyalty_cycles_completed: client?.loyalty_cycles_completed || 0,
+   loyalty_discount_active: client?.loyalty_discount_active || false,
+ })
+
  useEffect(() => {
-   setDifficult(client?.difficult_client || false)
-   setStars(client?.stars_earned || 0)
-   setCycles(client?.loyalty_cycles_completed || 0)
-   setDiscountActive(client?.loyalty_discount_active || false)
- // Depend on entire client object so state syncs when detail loads over stub
+   const b = {
+     full_name: client?.full_name || '', phone: client?.phone || '', email: client?.email || '',
+     difficult_client: client?.difficult_client || false, stars_earned: client?.stars_earned || 0,
+     loyalty_cycles_completed: client?.loyalty_cycles_completed || 0,
+     loyalty_discount_active: client?.loyalty_discount_active || false,
+   }
+   setBase(b)
+   setEditName(b.full_name); setEditPhone(b.phone); setEditEmail(b.email)
+   setDifficult(b.difficult_client); setStars(b.stars_earned)
+   setCycles(b.loyalty_cycles_completed); setDiscountActive(b.loyalty_discount_active)
  }, [client])
 
- async function toggleDifficult() {
-   const next = !difficult
-   setDifficult(next)
-   await axios.patch(API + '/api/customers/' + client.id, { difficult_client: next }).catch(e => console.error('flag patch failed:', e?.response?.data || e.message))
+ const dirty =
+   editName  !== base.full_name        ||
+   editPhone !== base.phone            ||
+   editEmail !== base.email            ||
+   difficult !== base.difficult_client ||
+   stars     !== base.stars_earned
+
+ function clickStar(n) {
+   let newStars = n, newCycles = cycles, newDiscount = discountActive
+   if (n === 5) { newStars = 0; newCycles = cycles + 1; newDiscount = true }
+   setStars(newStars); setCycles(newCycles); setDiscountActive(newDiscount)
  }
 
- async function clickStar(n) {
-   let newStars = n
-   let newCycles = cycles
-   let newDiscountActive = discountActive
-   if (n === 5) {
-     // Complete a cycle
-     newStars = 0
-     newCycles = cycles + 1
-     newDiscountActive = true
+ async function handleSave() {
+   setSaving(true)
+   try {
+     const profileChanged = editName !== base.full_name || editPhone !== base.phone || editEmail !== base.email
+     const loyaltyChanged = difficult !== base.difficult_client || stars !== base.stars_earned
+     await Promise.all([
+       profileChanged ? axios.put(API + '/api/customers/' + client.id, {
+         full_name: editName, phone: editPhone, email: editEmail,
+       }) : null,
+       loyaltyChanged ? axios.patch(API + '/api/customers/' + client.id, {
+         difficult_client: difficult, stars_earned: stars,
+         loyalty_cycles_completed: cycles, loyalty_discount_active: discountActive,
+       }) : null,
+     ].filter(Boolean))
+     setBase({ full_name: editName, phone: editPhone, email: editEmail,
+       difficult_client: difficult, stars_earned: stars,
+       loyalty_cycles_completed: cycles, loyalty_discount_active: discountActive })
+   } catch (err) {
+     console.error('Save failed:', err?.response?.data || err.message)
    }
-   setStars(newStars)
-   setCycles(newCycles)
-   setDiscountActive(newDiscountActive)
-   await axios.patch(API + '/api/customers/' + client.id, {
-     stars_earned: newStars,
-     loyalty_cycles_completed: newCycles,
-     loyalty_discount_active: newDiscountActive,
-   }).catch(e => console.error('star patch failed:', e?.response?.data || e.message))
+   setSaving(false)
  }
+
+ const fieldInput = (value, onChange, placeholder, style) => (
+   <input value={value} onChange={e => onChange(e.target.value)} placeholder={placeholder}
+     style={{ border:'none', borderBottom:'1px dashed #cbd5e1', outline:'none', background:'transparent',
+       padding:'0 0 2px', fontFamily:'inherit', cursor:'text', ...style }} />
+ )
 
  if (loading || !client.bookings) {
    return (
@@ -562,20 +594,32 @@ function ClientDetail({ client, loading, onBack }) {
  ]
  return (
  <div style={{ padding:24, flex:1, overflowY:'auto' }}>
- <button onClick={onBack} style={{ background:'none', border:'none', color:'#64748b', fontWeight:700, fontSize:14, cursor:'pointer', marginBottom:16, padding:0 }}>← Back to Clients</button>
+ <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:16 }}>
+   <button onClick={onBack} style={{ background:'none', border:'none', color:'#64748b', fontWeight:700, fontSize:14, cursor:'pointer', padding:0 }}>← Back to Clients</button>
+   {dirty && (
+     <button onClick={handleSave} disabled={saving}
+       style={{ background:'#0f172a', color:'#fff', border:'none', borderRadius:8, padding:'7px 18px', fontSize:13, fontWeight:700, cursor: saving ? 'not-allowed' : 'pointer', opacity: saving ? 0.7 : 1 }}>
+       {saving ? 'Saving…' : 'Save'}
+     </button>
+   )}
+ </div>
  <div style={{ display:'flex', alignItems:'center', gap:16, marginBottom:24 }}>
  <div style={{ width:52, height:52, borderRadius:'50%', background:'#0f172a', color:'#fff', display:'flex', alignItems:'center', justifyContent:'center', fontSize:20, fontWeight:900, flexShrink:0 }}>
- {client.full_name?.[0]?.toUpperCase()}
+ {editName?.[0]?.toUpperCase() || '?'}
  </div>
- <div style={{ flex:1 }}>
-   <div style={{ display:'flex', alignItems:'center', gap:10 }}>
-     <div style={{ fontSize:22, fontWeight:900, color:'#0f172a' }}>{client.full_name}</div>
-     <button onClick={toggleDifficult} title={difficult ? 'Remove difficult flag' : 'Flag as difficult client'}
-       style={{ background:'none', border:'none', cursor:'pointer', padding:3, display:'flex', alignItems:'center' }}>
+ <div style={{ flex:1, minWidth:0 }}>
+   <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:4 }}>
+     {fieldInput(editName, setEditName, 'Client name', { fontSize:22, fontWeight:900, color:'#0f172a', width:'100%' })}
+     <button onClick={() => setDifficult(d => !d)} title={difficult ? 'Remove difficult flag' : 'Flag as difficult client'}
+       style={{ background:'none', border:'none', cursor:'pointer', padding:3, display:'flex', alignItems:'center', flexShrink:0 }}>
        <FlagIcon active={difficult} size={16} />
      </button>
    </div>
-   <div style={{ fontSize:13, color:'#64748b', marginTop:2 }}>{[client.phone, client.email].filter(Boolean).join(' · ')}</div>
+   <div style={{ display:'flex', alignItems:'center', gap:8 }}>
+     {fieldInput(editPhone, setEditPhone, 'Phone', { fontSize:13, color:'#64748b' })}
+     <span style={{ color:'#cbd5e1', fontSize:13 }}>·</span>
+     {fieldInput(editEmail, setEditEmail, 'Email', { fontSize:13, color:'#64748b', flex:1 })}
+   </div>
  </div>
  </div>
 
