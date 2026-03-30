@@ -602,12 +602,12 @@ function ClientDetail({ client, loading, onBack }) {
  <div style={{ padding:24, flex:1, overflowY:'auto' }}>
  <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:16 }}>
    <button onClick={onBack} style={{ background:'none', border:'none', color:'#64748b', fontWeight:700, fontSize:14, cursor:'pointer', padding:0 }}>← Back to Clients</button>
-   {dirty && (
-     <button onClick={handleSave} disabled={saving}
-       style={{ background:'#0f172a', color:'#fff', border:'none', borderRadius:8, padding:'7px 18px', fontSize:13, fontWeight:700, cursor: saving ? 'not-allowed' : 'pointer', opacity: saving ? 0.7 : 1 }}>
-       {saving ? 'Saving…' : 'Save'}
-     </button>
-   )}
+   <button onClick={handleSave} disabled={!dirty || saving}
+     style={{ background: dirty ? '#0f172a' : '#e2e8f0', color: dirty ? '#fff' : '#94a3b8',
+       border:'none', borderRadius:8, padding:'7px 18px', fontSize:13, fontWeight:700,
+       cursor: (!dirty || saving) ? 'default' : 'pointer', opacity: saving ? 0.7 : 1 }}>
+     {saving ? 'Saving…' : 'Save'}
+   </button>
  </div>
  <div style={{ display:'flex', alignItems:'center', gap:16, marginBottom:24 }}>
  <div style={{ width:52, height:52, borderRadius:'50%', background:'#0f172a', color:'#fff', display:'flex', alignItems:'center', justifyContent:'center', fontSize:20, fontWeight:900, flexShrink:0 }}>
