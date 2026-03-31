@@ -1453,7 +1453,7 @@ await axios.put(API + '/api/bookings/' + editingId, {
  { id:'clients', icon:'', label:'Clients' },
  { id:'inbox', icon:'', label:'Inbox' },
  { id:'analytics', icon:'', label:'Analytics' },
-{ id:'widget',    icon:'🔗', label:'Widget' },
+{ id:'widget',    icon:'', label:'Chat Widget' },
  ].map(n => (
  <button key={n.id} onClick={() => setView(n.id)}
  style={{ width:'100%', textAlign:'left', padding:'9px 12px', borderRadius:10, border:'none',
@@ -1512,7 +1512,7 @@ await axios.put(API + '/api/bookings/' + editingId, {
  {/* Logout */}
  <div style={{ padding:'12px 10px 16px' }}>
    <button onClick={onLogout} style={{ width:'100%', textAlign:'left', padding:'9px 12px', borderRadius:10, border:'none', background:'transparent', color:'#94a3b8', fontWeight:700, fontSize:13, cursor:'pointer', display:'flex', alignItems:'center', gap:9 }}>
-     <span>⎋</span>Sign Out
+     Sign Out
    </button>
  </div>
  </div>
@@ -2041,7 +2041,7 @@ function WidgetSettingsView({ salon }) {
                 <div key={i} style={{ display:'flex', gap:10, alignItems:'flex-start', padding:12, background:'#f8fafc', borderRadius:10, border:'1px solid #e2e8f0' }}>
                   <div onClick={() => document.getElementById('img-' + i)?.click()}
                     style={{ width:60, height:60, borderRadius:8, background:'#e2e8f0', overflow:'hidden', flexShrink:0, display:'flex', alignItems:'center', justifyContent:'center', cursor:'pointer', fontSize:22 }}>
-                    {p.imageData ? <img src={p.imageData} style={{ width:'100%', height:'100%', objectFit:'cover' }} /> : '🖼'}
+                    {p.imageData ? <img src={p.imageData} style={{ width:'100%', height:'100%', objectFit:'cover' }} /> : <span style={{ fontSize:11, color:'#94a3b8', lineHeight:1.2, textAlign:'center' }}>Add<br/>image</span>}
                     <input id={'img-' + i} type="file" accept="image/*" style={{ display:'none' }}
                       onChange={e => handleImageUpload(i, e.target.files[0])} />
                   </div>
