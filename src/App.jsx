@@ -1918,9 +1918,19 @@ function WidgetSettingsView({ salon }) {
 
   function handleImageUpload(i, file) {
     if (!file) return
-    const reader = new FileReader()
-    reader.onload = e => updateProduct(i, 'imageData', e.target.result)
-    reader.readAsDataURL(file)
+    const img = new Image()
+    const url = URL.createObjectURL(file)
+    img.onload = () => {
+      const MAX = 800
+      const scale = img.width > MAX ? MAX / img.width : 1
+      const canvas = document.createElement('canvas')
+      canvas.width  = Math.round(img.width  * scale)
+      canvas.height = Math.round(img.height * scale)
+      canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height)
+      URL.revokeObjectURL(url)
+      updateProduct(i, 'imageData', canvas.toDataURL('image/jpeg', 0.7))
+    }
+    img.src = url
   }
 
   async function saveSettings() {
