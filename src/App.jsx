@@ -1737,6 +1737,27 @@ await axios.put(API + '/api/bookings/' + editingId, {
  <label style={lbl}>Notes</label>
  <textarea style={{...inp, height:68, resize:'vertical'}} value={form.notes} onChange={e => setForm({...form, notes:e.target.value})} placeholder="Optional notes…" />
 
+{(() => {
+const editingBk = editingId ? bookings.find(b => b.id === editingId) : null
+const addons = Array.isArray(editingBk?.upsell_products) ? editingBk.upsell_products : []
+if (!addons.length) return null
+const addonsTotal = addons.reduce((s, p) => s + parseFloat(p.price || 0), 0)
+return (
+<div style={{ marginTop:10, padding:'10px 12px', background:'#fdf6ee', border:'1px solid #f4d9b0', borderRadius:8 }}>
+  <div style={{ fontSize:10, fontWeight:800, color:'#92400e', textTransform:'uppercase', letterSpacing:0.8, marginBottom:6 }}>Add-ons (from chat booking)</div>
+  {addons.map((p, i) => (
+    <div key={i} style={{ display:'flex', justifyContent:'space-between', fontSize:13, marginBottom:3 }}>
+      <span style={{ color:'#78350f' }}>{p.name}</span>
+      <span style={{ fontWeight:700, color:'#78350f' }}>£{parseFloat(p.price || 0).toFixed(2)}</span>
+    </div>
+  ))}
+  <div style={{ display:'flex', justifyContent:'space-between', fontSize:12, fontWeight:800, color:'#c9a96e', borderTop:'1px solid #f4d9b0', paddingTop:5, marginTop:4 }}>
+    <span>Add-ons total</span><span>£{addonsTotal.toFixed(2)}</span>
+  </div>
+</div>
+)
+})()}
+
  <div style={{ display:'flex', gap:10, marginTop:20, flexWrap:'wrap' }}>
  <button onClick={handleSave} style={{...btnPrimary, flex:1}}>Save Booking</button>
  {editingId && (
