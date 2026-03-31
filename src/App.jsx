@@ -72,7 +72,9 @@ function CheckoutModal({ booking, services, onClose, onComplete, receiptData, co
  ? booking.service_ids.map(id => services.find(s => s.id === id)).filter(Boolean)
  : (booking.service_id ? [services.find(s => s.id === booking.service_id)].filter(Boolean) : [])
  const svc = selectedSvcs[0] || services.find(s => s.id === booking.service_id)
- const defaultTotal = parseFloat(selectedSvcs.reduce((sum, s) => sum + parseFloat(s?.price || 0), 0).toFixed(2)) || parseFloat(svc?.price || 0)
+ const upsellItems = Array.isArray(booking.upsell_products) ? booking.upsell_products : []
+ const upsellTotal = upsellItems.reduce((sum, p) => sum + parseFloat(p.price || 0), 0)
+ const defaultTotal = parseFloat((selectedSvcs.reduce((sum, s) => sum + parseFloat(s?.price || 0), 0) + upsellTotal).toFixed(2)) || parseFloat(svc?.price || 0)
  const discountAmt = (loyaltyDiscount && !receiptData) ? (parseFloat(loyaltyDiscount) || 0) : 0
 
  // Initialise synchronously from pre-fetched receiptData so receipt shows with no flash
@@ -204,6 +206,11 @@ function CheckoutModal({ booking, services, onClose, onComplete, receiptData, co
  <span style={{ fontWeight:700 }}>{new Date(booking.start_time).toLocaleString('en-GB', { weekday:'short', day:'numeric', month:'short', hour:'2-digit', minute:'2-digit' })}</span>
  </div>
  <div style={{ borderTop:'1px solid #e2e8f0', paddingTop:10, marginTop:4 }}>
+{upsellItems.length > 0 && upsellItems.map((p, i) => (
+<div key={i} style={{ display:'flex', justifyContent:'space-between', fontSize:12, color:'#c9a96e', marginBottom:3 }}>
+  <span>{p.name}</span><span>£{parseFloat(p.price || 0).toFixed(2)}</span>
+</div>
+))}
  {discountAmt > 0 && (
  <div style={{ display:'flex', justifyContent:'space-between', fontSize:12, color:'#059669', fontWeight:700, marginBottom:4 }}>
    <span>Loyalty Discount</span><span>-Â£{discountAmt.toFixed(2)}</span>
@@ -251,6 +258,17 @@ function CheckoutModal({ booking, services, onClose, onComplete, receiptData, co
  {new Date(booking.start_time).toLocaleString('en-GB', { weekday:'short', day:'numeric', month:'short', hour:'2-digit', minute:'2-digit' })}
  </div>
  </div>
+ {upsellItems.length > 0 && (
+<div style={{ background:'#fdf6ee', border:'1px solid #f4d9b0', borderRadius:8, padding:'10px 12px', marginBottom:12 }}>
+  <div style={{ fontSize:11, fontWeight:800, color:'#94a3b8', textTransform:'uppercase', letterSpacing:0.8, marginBottom:6 }}>Add-on Products</div>
+  {upsellItems.map((p, i) => (
+    <div key={i} style={{ display:'flex', justifyContent:'space-between', fontSize:13, marginBottom:3 }}>
+      <span>{p.name}</span>
+      <span style={{ fontWeight:700 }}>£{parseFloat(p.price || 0).toFixed(2)}</span>
+    </div>
+  ))}
+</div>
+)}
  {discountAmt > 0 && (
  <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', padding:'8px 12px', background:'#f0fdf4', border:'1px solid #bbf7d0', borderRadius:8, marginTop:10, marginBottom:4, fontSize:13, fontWeight:700, color:'#059669' }}>
    <span>Loyalty Discount applied</span><span>-Â£{discountAmt.toFixed(2)}</span>
