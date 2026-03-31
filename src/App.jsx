@@ -12,10 +12,10 @@ const API = 'https://orbit-backend-production-e46d.up.railway.app'
 
 // Constants 
 const CATEGORIES = [
- { label: 'Nail Enhancements', color: '#fca5a5' },
- { label: 'Natural Nails', color: '#93c5fd' },
- { label: 'Service Add On', color: '#fde68a' },
- { label: 'Beauty', color: '#d8b4fe' },
+ { label: 'Nail Enhancements', color: '#f4cccc' },
+ { label: 'Natural Nails',     color: '#c9daf8' },
+ { label: 'Service Add On',    color: '#fde68a' },
+ { label: 'Beauty',            color: '#c182ca' },
 ]
 const CATEGORY_COLOR = Object.fromEntries(CATEGORIES.map(c => [c.label, c.color]))
 function getPaymentMethods(country) {
@@ -1074,7 +1074,12 @@ function MainApp({ salon, onLogout }) {
  let color
  if (isCompleted) color = '#D1D5DB'
  else if (isVisualiser) color = '#1e3a8a'
- else color = b.services?.color || CATEGORY_COLOR[b.services?.category] || '#94a3b8'
+ else if (b.services?.category === 'Service Add On' && Array.isArray(b.service_ids) && b.service_ids.length > 1) {
+   const primary = b.service_ids.map(id => services.find(s => s.id === id)).find(s => s && s.category !== 'Service Add On')
+   color = primary ? (primary.color || CATEGORY_COLOR[primary.category] || '#94a3b8') : CATEGORY_COLOR['Service Add On'] || '#fde68a'
+ } else {
+   color = b.services?.color || CATEGORY_COLOR[b.services?.category] || '#94a3b8'
+ }
 
  let title = (b.customers?.full_name || 'Guest') + ' · ' + (b.services?.name || '')
  if (isVisualiser && b.ai_prediction) title = (b.customers?.full_name || 'Guest') + ' · ' + b.ai_prediction
@@ -1091,7 +1096,7 @@ function MainApp({ salon, onLogout }) {
  editable: !isCompleted,
  extendedProps: b,
  }
- }), [bookings])
+ }), [bookings, services])
 
  // Opening hours → slot range (slotMax extends 1 hr past closing for staff overflow)
  const { slotMin, slotMax } = useMemo(() => {
@@ -1430,6 +1435,7 @@ await axios.put(API + '/api/bookings/' + editingId, {
  { id:'clients', icon:'', label:'Clients' },
  { id:'inbox', icon:'', label:'Inbox' },
  { id:'analytics', icon:'', label:'Analytics' },
+{ id:'widget',    icon:'🔗', label:'Widget' },
  ].map(n => (
  <button key={n.id} onClick={() => setView(n.id)}
  style={{ width:'100%', textAlign:'left', padding:'9px 12px', borderRadius:10, border:'none',
@@ -1595,6 +1601,7 @@ await axios.put(API + '/api/bookings/' + editingId, {
  {view === 'clients' && <ClientsView />}
  {view === 'inbox' && <InboxView country={salon?.country} />}
  {view === 'analytics' && <div style={{ flex:1, overflowY:'auto' }}><Analytics /></div>}
+{view === 'widget'    && <WidgetSettingsView salon={salon} />}
  </div>
 
  {/* Modals */}
@@ -1870,6 +1877,154 @@ await axios.put(API + '/api/bookings/' + editingId, {
  })()}
  </div>
  )
+}
+
+// ── Widget Settings ────────────────────────────────────────────────────────────
+function WidgetSettingsView({ salon }) {
+  const salonId   = salon?.id   || ''
+  const salonName = salon?.name || ''
+  const widgetUrl = API + '/widget/widget-page.html?salon=' + encodeURIComponent(salonId) + '&name=' + encodeURIComponent(salonName)
+  const embedCode = '<script src="' + API + '/widget/orbit-chat-widget.js?salon=' + salonId + '"><\/script>'
+
+  const [upsellEnabled, setUpsellEnabled] = useState(false)
+  const [products, setProducts]           = useState([])
+  const [saving, setSaving]               = useState(false)
+  const [copied, setCopied]               = useState(null)
+
+  useEffect(() => {
+    if (!salonId) return
+    Promise.all([
+      axios.get(API + '/api/settings/widget_upsell_enabled').catch(() => ({ data: null })),
+      axios.get(API + '/api/settings/widget_upsell_products').catch(() => ({ data: null })),
+    ]).then(([er, pr]) => {
+      if (er.data?.value != null) setUpsellEnabled(er.data.value === 'true')
+      if (pr.data?.value) { try { setProducts(JSON.parse(pr.data.value)) } catch (_) {} }
+    })
+  }, [salonId])
+
+  function copy(text, key) {
+    navigator.clipboard.writeText(text).then(() => {
+      setCopied(key); setTimeout(() => setCopied(null), 2000)
+    }).catch(() => {
+      const el = document.createElement('textarea'); el.value = text
+      document.body.appendChild(el); el.select(); document.execCommand('copy'); document.body.removeChild(el)
+      setCopied(key); setTimeout(() => setCopied(null), 2000)
+    })
+  }
+
+  function updateProduct(i, field, value) {
+    setProducts(prev => prev.map((p, idx) => idx !== i ? p : { ...p, [field]: value }))
+  }
+
+  function handleImageUpload(i, file) {
+    if (!file) return
+    const reader = new FileReader()
+    reader.onload = e => updateProduct(i, 'imageData', e.target.result)
+    reader.readAsDataURL(file)
+  }
+
+  async function saveSettings() {
+    setSaving(true)
+    try {
+      await Promise.all([
+        axios.post(API + '/api/settings/widget_upsell_enabled', { value: String(upsellEnabled) }),
+        axios.post(API + '/api/settings/widget_upsell_products', { value: JSON.stringify(products) }),
+      ])
+    } catch (err) { alert('Save failed: ' + (err.response?.data?.error || err.message)) }
+    setSaving(false)
+  }
+
+  const card     = { background:'#fff', borderRadius:14, padding:20, marginBottom:18, border:'1px solid #e2e8f0' }
+  const secTitle = { fontSize:14, fontWeight:800, color:'#0f172a', marginBottom:3 }
+  const secSub   = { fontSize:12, color:'#94a3b8', marginBottom:12 }
+  const copyRow  = { display:'flex', gap:8, alignItems:'center' }
+  const codeBox  = { ...inp, background:'#f8fafc', flex:1, fontFamily:'monospace', fontSize:11, color:'#475569', cursor:'default' }
+
+  return (
+    <div style={{ flex:1, overflowY:'auto', padding:32 }}>
+      <div style={{ maxWidth:620 }}>
+        <h2 style={{ fontSize:18, fontWeight:900, marginBottom:22, color:'#0f172a' }}>Widget Settings</h2>
+
+        <div style={card}>
+          <div style={secTitle}>Standalone Booking Page</div>
+          <div style={secSub}>Share this link — opens a hosted booking page with the chat widget.</div>
+          <div style={copyRow}>
+            <input readOnly style={codeBox} value={widgetUrl} onClick={e => e.target.select()} />
+            <button onClick={() => copy(widgetUrl, 'link')}
+              style={{ ...btnGhost, padding:'8px 14px', fontSize:12, background: copied==='link' ? '#059669' : '#fff', color: copied==='link' ? '#fff' : '#0f172a', borderColor: copied==='link' ? '#059669' : '#e2e8f0' }}>
+              {copied === 'link' ? 'Copied!' : 'Copy'}
+            </button>
+          </div>
+        </div>
+
+        <div style={card}>
+          <div style={secTitle}>Embed Script</div>
+          <div style={secSub}>Paste into any webpage to embed the booking widget on your site.</div>
+          <div style={copyRow}>
+            <input readOnly style={codeBox} value={embedCode} onClick={e => e.target.select()} />
+            <button onClick={() => copy(embedCode, 'embed')}
+              style={{ ...btnGhost, padding:'8px 14px', fontSize:12, background: copied==='embed' ? '#059669' : '#fff', color: copied==='embed' ? '#fff' : '#0f172a', borderColor: copied==='embed' ? '#059669' : '#e2e8f0' }}>
+              {copied === 'embed' ? 'Copied!' : 'Copy'}
+            </button>
+          </div>
+        </div>
+
+        <div style={card}>
+          <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start' }}>
+            <div>
+              <div style={secTitle}>Post-Booking Upsell</div>
+              <div style={secSub}>Show product cards after a booking is confirmed in the widget.</div>
+            </div>
+            <button onClick={() => setUpsellEnabled(e => !e)}
+              style={{ padding:'7px 16px', borderRadius:20, border:'none', fontWeight:800, fontSize:12, cursor:'pointer',
+                background: upsellEnabled ? '#059669' : '#e2e8f0', color: upsellEnabled ? '#fff' : '#64748b' }}>
+              {upsellEnabled ? 'Enabled' : 'Disabled'}
+            </button>
+          </div>
+        </div>
+
+        {upsellEnabled && (
+          <div style={card}>
+            <div style={secTitle}>Upsell Products</div>
+            <div style={secSub}>Up to 6 products shown after booking. Click the image area to upload a photo.</div>
+            <div style={{ display:'flex', flexDirection:'column', gap:10, marginTop:4 }}>
+              {products.map((p, i) => (
+                <div key={i} style={{ display:'flex', gap:10, alignItems:'flex-start', padding:12, background:'#f8fafc', borderRadius:10, border:'1px solid #e2e8f0' }}>
+                  <div onClick={() => document.getElementById('img-' + i)?.click()}
+                    style={{ width:60, height:60, borderRadius:8, background:'#e2e8f0', overflow:'hidden', flexShrink:0, display:'flex', alignItems:'center', justifyContent:'center', cursor:'pointer', fontSize:22 }}>
+                    {p.imageData ? <img src={p.imageData} style={{ width:'100%', height:'100%', objectFit:'cover' }} /> : '🖼'}
+                    <input id={'img-' + i} type="file" accept="image/*" style={{ display:'none' }}
+                      onChange={e => handleImageUpload(i, e.target.files[0])} />
+                  </div>
+                  <div style={{ flex:1, display:'flex', flexDirection:'column', gap:6 }}>
+                    <input style={{ ...inp, fontSize:12 }} placeholder="Product name" value={p.name}
+                      onChange={e => updateProduct(i, 'name', e.target.value)} />
+                    <div style={{ display:'flex', gap:6 }}>
+                      <input style={{ ...inp, fontSize:12, flex:'0 0 90px' }} placeholder="Price" value={p.price}
+                        onChange={e => updateProduct(i, 'price', e.target.value)} />
+                      <input style={{ ...inp, fontSize:12, flex:1 }} placeholder="Buy URL (optional)" value={p.buyUrl}
+                        onChange={e => updateProduct(i, 'buyUrl', e.target.value)} />
+                    </div>
+                  </div>
+                  <button onClick={() => setProducts(prev => prev.filter((_, idx) => idx !== i))}
+                    style={{ background:'none', border:'none', cursor:'pointer', color:'#94a3b8', fontSize:18, padding:'0 2px', flexShrink:0 }}>×</button>
+                </div>
+              ))}
+              {products.length < 6 && (
+                <button onClick={() => setProducts(p => [...p, { name:'', price:'', imageData:'', buyUrl:'' }])}
+                  style={{ ...btnGhost, fontSize:12, padding:'8px 14px', alignSelf:'flex-start' }}>+ Add Product</button>
+              )}
+            </div>
+          </div>
+        )}
+
+        <button onClick={saveSettings} disabled={saving}
+          style={{ ...btnPrimary, opacity: saving ? 0.7 : 1 }}>
+          {saving ? 'Saving…' : 'Save Settings'}
+        </button>
+      </div>
+    </div>
+  )
 }
 
 // Auth wrapper — root export
