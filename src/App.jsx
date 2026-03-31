@@ -1520,15 +1520,15 @@ await axios.put(API + '/api/bookings/' + editingId, {
  headerToolbar={{ left:'prev,next today', center:'title', right:'resourceTimeGridDay,dayGridMonth' }}
  eventContent={(info) => {
    const bk = info.event.extendedProps
-   const isDifficult = bk.customers?.difficult_client
-   const rawTime = bk.start_time ? bk.start_time.split('+')[0].split('T')[1]?.slice(0, 5) : ''
+   const startTime = bk.start_time ? bk.start_time.split('+')[0].split('T')[1]?.slice(0, 5) : ''
+   const endTime   = bk.end_time   ? bk.end_time.split('+')[0].split('T')[1]?.slice(0, 5)   : ''
    const name = bk.customers?.full_name || 'Guest'
    const svc  = bk.services?.name || ''
+   const timeRange = startTime && endTime ? `${startTime} - ${endTime}` : startTime
    return (
-     <div style={{ display:'flex', alignItems:'center', gap:2, overflow:'hidden', height:'100%', padding:'1px 3px', fontSize:'inherit' }}>
-       <span style={{ whiteSpace:'nowrap', flexShrink:0 }}>{rawTime ? rawTime + ' · ' : ''}{name}</span>
-       {isDifficult && <FlagIcon active={true} size={10} />}
-       {svc && <span style={{ overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{' · ' + svc}</span>}
+     <div style={{ display:'flex', flexDirection:'column', justifyContent:'flex-start', alignItems:'flex-start', overflow:'hidden', height:'100%', padding:'2px 4px', fontSize:'inherit', lineHeight:1.3 }}>
+       {timeRange && <span style={{ whiteSpace:'nowrap', fontWeight:600, fontSize:'0.85em' }}>{timeRange}</span>}
+       <span style={{ overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', width:'100%' }}>{name}{svc ? ' · ' + svc : ''}</span>
      </div>
    )
  }}
