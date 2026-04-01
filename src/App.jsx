@@ -92,6 +92,26 @@ function CheckoutModal({ booking, services, onClose, onComplete, receiptData, co
  const [done, setDone] = useState(initDone)
  const [sendingEmail, setSendingEmail] = useState(false)
  const [receiptSent, setReceiptSent] = useState(false)
+ const [gcValidation, setGcValidation] = useState({}) // index → { ok, remaining_balance, error }
+ const [gcValidating, setGcValidating] = useState({})
+
+ async function validateGiftCard(i) {
+   const code = (splits[i]?.gift_card_code || '').trim()
+   if (!code) return
+   setGcValidating(prev => ({ ...prev, [i]: true }))
+   try {
+     const { data } = await axios.post(API + '/api/gift-cards/validate', { code })
+     setGcValidation(prev => ({ ...prev, [i]: { ok: true, ...data } }))
+     // Auto-fill amount = min(card remaining, checkout remaining)
+     const currentSplitTotal = splits.reduce((s, p, idx) => idx === i ? s : s + (parseFloat(p.amount) || 0), 0)
+     const checkoutRemaining = parseFloat((total - currentSplitTotal).toFixed(2))
+     const apply = parseFloat(Math.min(data.remaining_balance, checkoutRemaining > 0 ? checkoutRemaining : data.remaining_balance).toFixed(2))
+     updateSplit(i, 'amount', apply)
+   } catch (err) {
+     setGcValidation(prev => ({ ...prev, [i]: { ok: false, error: err.response?.data?.error || 'Invalid gift card' } }))
+   }
+   setGcValidating(prev => ({ ...prev, [i]: false }))
+ }
 
  const splitTotal = splits.reduce((s, p) => s + (parseFloat(p.amount) || 0), 0)
  const remaining = parseFloat((total - splitTotal).toFixed(2))
@@ -285,15 +305,42 @@ function CheckoutModal({ booking, services, onClose, onComplete, receiptData, co
  <button onClick={addSplit} style={{ fontSize:12, padding:'4px 12px', borderRadius:8, border:'1px solid #e2e8f0', background:'#f8fafc', cursor:'pointer', fontWeight:700 }}>+ Split Payment</button>
  </div>
  {splits.map((split, i) => (
- <div key={i} style={{ display:'flex', gap:8, marginBottom:8, alignItems:'center' }}>
- <select style={{ ...inp, flex:'0 0 160px', width:'auto' }} value={split.method} onChange={e => updateSplit(i, 'method', e.target.value)}>
- {getPaymentMethods(country).map(m => <option key={m}>{m}</option>)}
- </select>
- <input style={{ ...inp, flex:1, width:'auto' }} type="number" min="0" step="0.01"
- value={split.amount} onChange={e => updateSplit(i, 'amount', e.target.value)} placeholder="Amount" />
- {splits.length > 1 && (
- <button onClick={() => removeSplit(i)} style={{ background:'none', border:'none', color:'#ef4444', cursor:'pointer', fontSize:22, lineHeight:1, padding:'0 4px' }}>×</button>
- )}
+ <div key={i} style={{ marginBottom:10 }}>
+   <div style={{ display:'flex', gap:8, alignItems:'center' }}>
+     <select style={{ ...inp, flex:'0 0 160px', width:'auto' }} value={split.method}
+       onChange={e => { updateSplit(i, 'method', e.target.value); setGcValidation(prev => { const n={...prev}; delete n[i]; return n }) }}>
+       {getPaymentMethods(country).map(m => <option key={m}>{m}</option>)}
+     </select>
+     <input style={{ ...inp, flex:1, width:'auto' }} type="number" min="0" step="0.01"
+       value={split.amount} onChange={e => updateSplit(i, 'amount', e.target.value)} placeholder="Amount" />
+     {splits.length > 1 && (
+       <button onClick={() => { removeSplit(i); setGcValidation(prev => { const n={...prev}; delete n[i]; return n }) }}
+         style={{ background:'none', border:'none', color:'#ef4444', cursor:'pointer', fontSize:22, lineHeight:1, padding:'0 4px' }}>×</button>
+     )}
+   </div>
+   {split.method === 'Gift Card' && (
+     <div style={{ marginTop:5 }}>
+       <div style={{ display:'flex', gap:6 }}>
+         <input style={{ ...inp, flex:1, fontFamily:'monospace', fontSize:13, textTransform:'uppercase' }}
+           placeholder="Code e.g. GC-XXXX-XXXX"
+           value={split.gift_card_code || ''}
+           onChange={e => { updateSplit(i, 'gift_card_code', e.target.value.toUpperCase()); setGcValidation(prev => { const n={...prev}; delete n[i]; return n }) }} />
+         <button onClick={() => validateGiftCard(i)} disabled={gcValidating[i]}
+           style={{ ...btnGhost, padding:'8px 12px', fontSize:12, whiteSpace:'nowrap', opacity: gcValidating[i] ? 0.6 : 1 }}>
+           {gcValidating[i] ? '…' : 'Validate'}
+         </button>
+       </div>
+       {gcValidation[i] && (
+         gcValidation[i].ok
+           ? <div style={{ fontSize:12, color:'#059669', fontWeight:700, marginTop:4 }}>
+               Balance available: £{parseFloat(gcValidation[i].remaining_balance).toFixed(2)}
+             </div>
+           : <div style={{ fontSize:12, color:'#ef4444', fontWeight:700, marginTop:4 }}>
+               {gcValidation[i].error}
+             </div>
+       )}
+     </div>
+   )}
  </div>
  ))}
  <div style={{ padding:'8px 12px', borderRadius:8, marginBottom:16, marginTop:4,
@@ -1453,6 +1500,7 @@ await axios.put(API + '/api/bookings/' + editingId, {
  { id:'clients', icon:'', label:'Clients' },
  { id:'inbox', icon:'', label:'Inbox' },
  { id:'analytics', icon:'', label:'Analytics' },
+{ id:'giftcards', icon:'', label:'Gift Cards' },
 { id:'widget',    icon:'', label:'Chat Widget' },
  ].map(n => (
  <button key={n.id} onClick={() => setView(n.id)}
@@ -1618,8 +1666,9 @@ await axios.put(API + '/api/bookings/' + editingId, {
  )}
  {view === 'clients' && <ClientsView />}
  {view === 'inbox' && <InboxView country={salon?.country} />}
- {view === 'analytics' && <div style={{ flex:1, overflowY:'auto' }}><Analytics /></div>}
-{view === 'widget'    && <WidgetSettingsView salon={salon} />}
+ {view === 'analytics'  && <div style={{ flex:1, overflowY:'auto' }}><Analytics /></div>}
+{view === 'giftcards'  && <GiftCardsView />}
+{view === 'widget'     && <WidgetSettingsView salon={salon} />}
  </div>
 
  {/* Modals */}
@@ -1916,6 +1965,129 @@ return (
  })()}
  </div>
  )
+}
+
+// ── Gift Cards ─────────────────────────────────────────────────────────────────
+function GiftCardsView() {
+  const [cards, setCards]           = useState([])
+  const [loading, setLoading]       = useState(true)
+  const [search, setSearch]         = useState('')
+  const [value, setValue]           = useState('')
+  const [expiry, setExpiry]         = useState('')
+  const [issuing, setIssuing]       = useState(false)
+  const [newCode, setNewCode]       = useState(null)
+  const [copied, setCopied]         = useState(false)
+
+  useEffect(() => {
+    axios.get(API + '/api/gift-cards')
+      .then(r => setCards(r.data || []))
+      .catch(() => {})
+      .finally(() => setLoading(false))
+  }, [])
+
+  async function issueCard() {
+    if (!value || parseFloat(value) <= 0) { alert('Enter a valid value'); return }
+    setIssuing(true)
+    try {
+      const { data } = await axios.post(API + '/api/gift-cards/purchase', { value: parseFloat(value), expiry_date: expiry || undefined })
+      setCards(prev => [data, ...prev])
+      setNewCode(data.code)
+      setValue('')
+      setExpiry('')
+    } catch (err) {
+      alert(err.response?.data?.error || 'Failed to issue gift card')
+    }
+    setIssuing(false)
+  }
+
+  function copyCode(code) {
+    navigator.clipboard.writeText(code).then(() => { setCopied(true); setTimeout(() => setCopied(false), 2000) })
+  }
+
+  const statusColor = s => s === 'active' ? '#059669' : s === 'redeemed' ? '#64748b' : '#ef4444'
+  const statusBg    = s => s === 'active' ? '#f0fdf4' : s === 'redeemed' ? '#f8fafc' : '#fef2f2'
+
+  const filtered = cards.filter(c =>
+    !search || c.code.includes(search.toUpperCase()) || String(c.value).includes(search)
+  )
+
+  const secHead = { fontSize:11, fontWeight:800, color:'#64748b', textTransform:'uppercase', letterSpacing:0.8, marginBottom:14 }
+
+  return (
+    <div style={{ flex:1, overflowY:'auto', padding:'32px 28px', maxWidth:720 }}>
+      <h2 style={{ fontSize:22, fontWeight:900, color:'#0f172a', marginBottom:24 }}>Gift Cards</h2>
+
+      {/* Issue form */}
+      <div style={{ background:'#fff', borderRadius:14, padding:22, border:'1px solid #e2e8f0', marginBottom:28 }}>
+        <div style={secHead}>Issue New Gift Card</div>
+        <div style={{ display:'flex', gap:10, flexWrap:'wrap', alignItems:'flex-end' }}>
+          <div style={{ flex:'0 0 130px' }}>
+            <label style={{ ...lbl, marginTop:0 }}>Value (£)</label>
+            <input style={inp} type="number" min="1" step="0.01" placeholder="e.g. 50" value={value} onChange={e => setValue(e.target.value)} />
+          </div>
+          <div style={{ flex:'0 0 160px' }}>
+            <label style={{ ...lbl, marginTop:0 }}>Expiry date (optional)</label>
+            <input style={inp} type="date" value={expiry} onChange={e => setExpiry(e.target.value)} />
+          </div>
+          <button onClick={issueCard} disabled={issuing} style={{ ...btnPrimary, opacity: issuing ? 0.7 : 1, whiteSpace:'nowrap' }}>
+            {issuing ? 'Generating…' : 'Generate Card'}
+          </button>
+        </div>
+
+        {newCode && (
+          <div style={{ marginTop:16, padding:'14px 16px', background:'#f0fdf4', border:'1px solid #bbf7d0', borderRadius:10, display:'flex', alignItems:'center', justifyContent:'space-between', gap:12 }}>
+            <div>
+              <div style={{ fontSize:11, fontWeight:800, color:'#059669', textTransform:'uppercase', letterSpacing:0.8, marginBottom:4 }}>Gift card created</div>
+              <div style={{ fontSize:20, fontWeight:900, color:'#0f172a', letterSpacing:2, fontFamily:'monospace' }}>{newCode}</div>
+            </div>
+            <button onClick={() => copyCode(newCode)} style={{ ...btnGhost, fontSize:12, padding:'8px 14px' }}>
+              {copied ? 'Copied!' : 'Copy Code'}
+            </button>
+          </div>
+        )}
+      </div>
+
+      {/* Search + list */}
+      <div style={{ background:'#fff', borderRadius:14, border:'1px solid #e2e8f0', overflow:'hidden' }}>
+        <div style={{ padding:'16px 20px', borderBottom:'1px solid #f1f5f9', display:'flex', alignItems:'center', gap:10 }}>
+          <div style={secHead}>All Gift Cards</div>
+          <input style={{ ...inp, maxWidth:220, marginLeft:'auto' }} placeholder="Search by code or value…"
+            value={search} onChange={e => setSearch(e.target.value)} />
+        </div>
+        {loading ? (
+          <div style={{ padding:24, color:'#94a3b8', fontSize:13 }}>Loading…</div>
+        ) : filtered.length === 0 ? (
+          <div style={{ padding:24, color:'#94a3b8', fontSize:13 }}>No gift cards found.</div>
+        ) : (
+          <table style={{ width:'100%', borderCollapse:'collapse', fontSize:13 }}>
+            <thead>
+              <tr style={{ background:'#f8fafc' }}>
+                {['Code','Value','Remaining','Status','Expires','Issued'].map(h => (
+                  <th key={h} style={{ padding:'10px 16px', textAlign:'left', fontWeight:800, color:'#64748b', fontSize:11, textTransform:'uppercase', letterSpacing:0.6, whiteSpace:'nowrap' }}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {filtered.map(c => (
+                <tr key={c.id} style={{ borderTop:'1px solid #f1f5f9' }}>
+                  <td style={{ padding:'12px 16px', fontFamily:'monospace', fontWeight:700, fontSize:13, color:'#0f172a', letterSpacing:1 }}>{c.code}</td>
+                  <td style={{ padding:'12px 16px', fontWeight:700 }}>£{parseFloat(c.value).toFixed(2)}</td>
+                  <td style={{ padding:'12px 16px', fontWeight:700, color: parseFloat(c.remaining_balance) > 0 ? '#059669' : '#94a3b8' }}>£{parseFloat(c.remaining_balance).toFixed(2)}</td>
+                  <td style={{ padding:'12px 16px' }}>
+                    <span style={{ background: statusBg(c.status), color: statusColor(c.status), fontWeight:700, fontSize:11, padding:'3px 9px', borderRadius:20, textTransform:'capitalize' }}>
+                      {c.status}
+                    </span>
+                  </td>
+                  <td style={{ padding:'12px 16px', color:'#64748b' }}>{c.expiry_date ? new Date(c.expiry_date).toLocaleDateString('en-GB') : '—'}</td>
+                  <td style={{ padding:'12px 16px', color:'#94a3b8', fontSize:12 }}>{new Date(c.issued_at).toLocaleDateString('en-GB')}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+    </div>
+  )
 }
 
 // ── Widget Settings ────────────────────────────────────────────────────────────
