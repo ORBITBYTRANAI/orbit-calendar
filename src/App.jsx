@@ -933,9 +933,10 @@ function LoginPage({ onLogin }) {
  }
 
  return (
-   <div style={{ minHeight:'100vh', background:'#f8fafc', display:'flex', alignItems:'center', justifyContent:'center', fontFamily:'ui-sans-serif, system-ui, sans-serif' }}>
+   <div style={{ minHeight:'100vh', width:'100vw', display:'flex', alignItems:'center', justifyContent:'center', background:'#f8f8fc', fontFamily:'ui-sans-serif, system-ui, sans-serif', margin:0, padding:0 }}>
      <div style={{ background:'#fff', borderRadius:20, padding:40, width:380, boxShadow:'0 20px 60px rgba(0,0,0,0.12)' }}>
        <div style={{ marginBottom:28, textAlign:'center' }}>
+         <img src={orbitLogo} alt="Orbit" style={{ width:40, height:40, objectFit:'contain', marginBottom:12 }} />
          <div style={{ fontSize:26, fontWeight:800, color:'#0f172a', fontFamily:"'Neue Montreal', ui-sans-serif, system-ui, sans-serif" }}>Orbit Calendar</div>
          <div style={{ fontSize:13, color:'#64748b', marginTop:4, fontWeight:600 }}>Sign in to your salon</div>
        </div>
@@ -2089,7 +2090,6 @@ function GiftCardsView() {
             <option value="">Select…</option>
             <option value="Terminal">Terminal</option>
             <option value="Cash">Cash</option>
-            <option value="Split">Split</option>
           </select>
         </div>
 
