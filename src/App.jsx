@@ -2058,7 +2058,7 @@ function GiftCardsView() {
             <div style={{ fontSize:13, fontWeight:800, color:'#0f172a', marginBottom:2 }}>Nguoi gui</div>
             <div style={{ fontSize:11, color:'#94a3b8', marginBottom:10 }}>Sender — person buying the card</div>
             <label style={personLbl}>Name</label>
-            <input {...personInp(sender, setSender, 'name')} placeholder="e.g. Nguyen Van A" />
+            <input {...personInp(sender, setSender, 'name')} placeholder="tên người gửi" />
             <label style={personLbl}>Phone</label>
             <input {...personInp(sender, setSender, 'phone')} placeholder="e.g. 07700 900000" />
             <label style={personLbl}>Email</label>
@@ -2070,7 +2070,7 @@ function GiftCardsView() {
             <div style={{ fontSize:13, fontWeight:800, color:'#0f172a', marginBottom:2 }}>Nguoi nhan</div>
             <div style={{ fontSize:11, color:'#94a3b8', marginBottom:10 }}>Recipient — person receiving the card</div>
             <label style={personLbl}>Name</label>
-            <input {...personInp(recipient, setRecipient, 'name')} placeholder="e.g. Tran Thi B" />
+            <input {...personInp(recipient, setRecipient, 'name')} placeholder="tên người nhận" />
             <label style={personLbl}>Phone</label>
             <input {...personInp(recipient, setRecipient, 'phone')} placeholder="e.g. 07700 900001" />
             <label style={personLbl}>Email</label>
