@@ -1968,15 +1968,18 @@ return (
 }
 
 // ── Gift Cards ─────────────────────────────────────────────────────────────────
+const emptyPerson = { name:'', phone:'', email:'' }
+
 function GiftCardsView() {
-  const [cards, setCards]           = useState([])
-  const [loading, setLoading]       = useState(true)
-  const [search, setSearch]         = useState('')
-  const [value, setValue]           = useState('')
-  const [expiry, setExpiry]         = useState('')
-  const [issuing, setIssuing]       = useState(false)
-  const [newCode, setNewCode]       = useState(null)
-  const [copied, setCopied]         = useState(false)
+  const [cards, setCards]     = useState([])
+  const [loading, setLoading] = useState(true)
+  const [search, setSearch]   = useState('')
+  const [value, setValue]     = useState('')
+  const [sender, setSender]   = useState(emptyPerson)
+  const [recipient, setRecipient] = useState(emptyPerson)
+  const [issuing, setIssuing] = useState(false)
+  const [newCard, setNewCard] = useState(null)
+  const [copied, setCopied]   = useState(false)
 
   useEffect(() => {
     axios.get(API + '/api/gift-cards')
@@ -1989,11 +1992,20 @@ function GiftCardsView() {
     if (!value || parseFloat(value) <= 0) { alert('Enter a valid value'); return }
     setIssuing(true)
     try {
-      const { data } = await axios.post(API + '/api/gift-cards/purchase', { value: parseFloat(value), expiry_date: expiry || undefined })
+      const { data } = await axios.post(API + '/api/gift-cards/purchase', {
+        value: parseFloat(value),
+        sender_name:    sender.name    || undefined,
+        sender_phone:   sender.phone   || undefined,
+        sender_email:   sender.email   || undefined,
+        recipient_name:    recipient.name    || undefined,
+        recipient_phone:   recipient.phone   || undefined,
+        recipient_email:   recipient.email   || undefined,
+      })
       setCards(prev => [data, ...prev])
-      setNewCode(data.code)
+      setNewCard(data)
       setValue('')
-      setExpiry('')
+      setSender(emptyPerson)
+      setRecipient(emptyPerson)
     } catch (err) {
       alert(err.response?.data?.error || 'Failed to issue gift card')
     }
@@ -2007,40 +2019,84 @@ function GiftCardsView() {
   const statusColor = s => s === 'active' ? '#059669' : s === 'redeemed' ? '#64748b' : '#ef4444'
   const statusBg    = s => s === 'active' ? '#f0fdf4' : s === 'redeemed' ? '#f8fafc' : '#fef2f2'
 
-  const filtered = cards.filter(c =>
-    !search || c.code.includes(search.toUpperCase()) || String(c.value).includes(search)
-  )
+  const filtered = cards.filter(c => {
+    if (!search) return true
+    const q = search.toLowerCase()
+    return c.code.toLowerCase().includes(q)
+      || (c.sender_name    || '').toLowerCase().includes(q)
+      || (c.recipient_name || '').toLowerCase().includes(q)
+      || String(c.value).includes(q)
+  })
 
-  const secHead = { fontSize:11, fontWeight:800, color:'#64748b', textTransform:'uppercase', letterSpacing:0.8, marginBottom:14 }
+  const secHead   = { fontSize:11, fontWeight:800, color:'#64748b', textTransform:'uppercase', letterSpacing:0.8, marginBottom:12 }
+  const personLbl = { ...lbl, marginTop:10 }
+  const personInp = (person, setPerson, field) => ({
+    style: inp,
+    value: person[field],
+    onChange: e => setPerson(p => ({ ...p, [field]: e.target.value })),
+  })
 
   return (
-    <div style={{ flex:1, overflowY:'auto', padding:'32px 28px', maxWidth:720 }}>
+    <div style={{ flex:1, overflowY:'auto', padding:'32px 28px', maxWidth:800 }}>
       <h2 style={{ fontSize:22, fontWeight:900, color:'#0f172a', marginBottom:24 }}>Gift Cards</h2>
 
       {/* Issue form */}
       <div style={{ background:'#fff', borderRadius:14, padding:22, border:'1px solid #e2e8f0', marginBottom:28 }}>
         <div style={secHead}>Issue New Gift Card</div>
-        <div style={{ display:'flex', gap:10, flexWrap:'wrap', alignItems:'flex-end' }}>
-          <div style={{ flex:'0 0 130px' }}>
-            <label style={{ ...lbl, marginTop:0 }}>Value (£)</label>
-            <input style={inp} type="number" min="1" step="0.01" placeholder="e.g. 50" value={value} onChange={e => setValue(e.target.value)} />
-          </div>
-          <div style={{ flex:'0 0 160px' }}>
-            <label style={{ ...lbl, marginTop:0 }}>Expiry date (optional)</label>
-            <input style={inp} type="date" value={expiry} onChange={e => setExpiry(e.target.value)} />
-          </div>
-          <button onClick={issueCard} disabled={issuing} style={{ ...btnPrimary, opacity: issuing ? 0.7 : 1, whiteSpace:'nowrap' }}>
-            {issuing ? 'Generating…' : 'Generate Card'}
-          </button>
+
+        {/* Value */}
+        <div style={{ maxWidth:160 }}>
+          <label style={{ ...lbl, marginTop:0 }}>Value (£) *</label>
+          <input style={inp} type="number" min="1" step="0.01" placeholder="e.g. 50"
+            value={value} onChange={e => setValue(e.target.value)} />
         </div>
 
-        {newCode && (
+        {/* Two-column: Sender + Recipient */}
+        <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:20, marginTop:18 }}>
+          {/* Sender */}
+          <div style={{ background:'#f8fafc', borderRadius:10, padding:14, border:'1px solid #f1f5f9' }}>
+            <div style={{ fontSize:13, fontWeight:800, color:'#0f172a', marginBottom:2 }}>Nguoi gui</div>
+            <div style={{ fontSize:11, color:'#94a3b8', marginBottom:10 }}>Sender — person buying the card</div>
+            <label style={personLbl}>Name</label>
+            <input {...personInp(sender, setSender, 'name')} placeholder="e.g. Nguyen Van A" />
+            <label style={personLbl}>Phone</label>
+            <input {...personInp(sender, setSender, 'phone')} placeholder="e.g. 07700 900000" />
+            <label style={personLbl}>Email</label>
+            <input {...personInp(sender, setSender, 'email')} type="email" placeholder="sender@email.com" />
+          </div>
+
+          {/* Recipient */}
+          <div style={{ background:'#fdf6ee', borderRadius:10, padding:14, border:'1px solid #f4d9b0' }}>
+            <div style={{ fontSize:13, fontWeight:800, color:'#0f172a', marginBottom:2 }}>Nguoi nhan</div>
+            <div style={{ fontSize:11, color:'#94a3b8', marginBottom:10 }}>Recipient — person receiving the card</div>
+            <label style={personLbl}>Name</label>
+            <input {...personInp(recipient, setRecipient, 'name')} placeholder="e.g. Tran Thi B" />
+            <label style={personLbl}>Phone</label>
+            <input {...personInp(recipient, setRecipient, 'phone')} placeholder="e.g. 07700 900001" />
+            <label style={personLbl}>Email</label>
+            <input {...personInp(recipient, setRecipient, 'email')} type="email" placeholder="recipient@email.com" />
+          </div>
+        </div>
+
+        <button onClick={issueCard} disabled={issuing}
+          style={{ ...btnPrimary, marginTop:18, opacity: issuing ? 0.7 : 1 }}>
+          {issuing ? 'Generating…' : 'Generate Card'}
+        </button>
+
+        {newCard && (
           <div style={{ marginTop:16, padding:'14px 16px', background:'#f0fdf4', border:'1px solid #bbf7d0', borderRadius:10, display:'flex', alignItems:'center', justifyContent:'space-between', gap:12 }}>
             <div>
               <div style={{ fontSize:11, fontWeight:800, color:'#059669', textTransform:'uppercase', letterSpacing:0.8, marginBottom:4 }}>Gift card created</div>
-              <div style={{ fontSize:20, fontWeight:900, color:'#0f172a', letterSpacing:2, fontFamily:'monospace' }}>{newCode}</div>
+              <div style={{ fontSize:20, fontWeight:900, color:'#0f172a', letterSpacing:2, fontFamily:'monospace' }}>{newCard.code}</div>
+              {(newCard.recipient_email || newCard.sender_email) && (
+                <div style={{ fontSize:12, color:'#059669', marginTop:4 }}>
+                  {newCard.recipient_email && `Card sent to ${newCard.recipient_email}`}
+                  {newCard.recipient_email && newCard.sender_email && ' · '}
+                  {newCard.sender_email && `Receipt sent to ${newCard.sender_email}`}
+                </div>
+              )}
             </div>
-            <button onClick={() => copyCode(newCode)} style={{ ...btnGhost, fontSize:12, padding:'8px 14px' }}>
+            <button onClick={() => copyCode(newCard.code)} style={{ ...btnGhost, fontSize:12, padding:'8px 14px' }}>
               {copied ? 'Copied!' : 'Copy Code'}
             </button>
           </div>
@@ -2050,8 +2106,9 @@ function GiftCardsView() {
       {/* Search + list */}
       <div style={{ background:'#fff', borderRadius:14, border:'1px solid #e2e8f0', overflow:'hidden' }}>
         <div style={{ padding:'16px 20px', borderBottom:'1px solid #f1f5f9', display:'flex', alignItems:'center', gap:10 }}>
-          <div style={secHead}>All Gift Cards</div>
-          <input style={{ ...inp, maxWidth:220, marginLeft:'auto' }} placeholder="Search by code or value…"
+          <div style={{ ...secHead, marginBottom:0 }}>All Gift Cards</div>
+          <input style={{ ...inp, maxWidth:240, marginLeft:'auto' }}
+            placeholder="Search by code, name, value…"
             value={search} onChange={e => setSearch(e.target.value)} />
         </div>
         {loading ? (
@@ -2062,24 +2119,35 @@ function GiftCardsView() {
           <table style={{ width:'100%', borderCollapse:'collapse', fontSize:13 }}>
             <thead>
               <tr style={{ background:'#f8fafc' }}>
-                {['Code','Value','Remaining','Status','Expires','Issued'].map(h => (
-                  <th key={h} style={{ padding:'10px 16px', textAlign:'left', fontWeight:800, color:'#64748b', fontSize:11, textTransform:'uppercase', letterSpacing:0.6, whiteSpace:'nowrap' }}>{h}</th>
+                {['Code','Value','Remaining','Status','Sender','Recipient','Issued'].map(h => (
+                  <th key={h} style={{ padding:'10px 14px', textAlign:'left', fontWeight:800, color:'#64748b', fontSize:11, textTransform:'uppercase', letterSpacing:0.6, whiteSpace:'nowrap' }}>{h}</th>
                 ))}
               </tr>
             </thead>
             <tbody>
               {filtered.map(c => (
                 <tr key={c.id} style={{ borderTop:'1px solid #f1f5f9' }}>
-                  <td style={{ padding:'12px 16px', fontFamily:'monospace', fontWeight:700, fontSize:13, color:'#0f172a', letterSpacing:1 }}>{c.code}</td>
-                  <td style={{ padding:'12px 16px', fontWeight:700 }}>£{parseFloat(c.value).toFixed(2)}</td>
-                  <td style={{ padding:'12px 16px', fontWeight:700, color: parseFloat(c.remaining_balance) > 0 ? '#059669' : '#94a3b8' }}>£{parseFloat(c.remaining_balance).toFixed(2)}</td>
-                  <td style={{ padding:'12px 16px' }}>
-                    <span style={{ background: statusBg(c.status), color: statusColor(c.status), fontWeight:700, fontSize:11, padding:'3px 9px', borderRadius:20, textTransform:'capitalize' }}>
+                  <td style={{ padding:'12px 14px', fontFamily:'monospace', fontWeight:700, fontSize:12, color:'#0f172a', letterSpacing:1, whiteSpace:'nowrap' }}>{c.code}</td>
+                  <td style={{ padding:'12px 14px', fontWeight:700, whiteSpace:'nowrap' }}>£{parseFloat(c.value).toFixed(2)}</td>
+                  <td style={{ padding:'12px 14px', fontWeight:700, whiteSpace:'nowrap', color: parseFloat(c.remaining_balance) > 0 ? '#059669' : '#94a3b8' }}>£{parseFloat(c.remaining_balance).toFixed(2)}</td>
+                  <td style={{ padding:'12px 14px' }}>
+                    <span style={{ background: statusBg(c.status), color: statusColor(c.status), fontWeight:700, fontSize:11, padding:'3px 9px', borderRadius:20, textTransform:'capitalize', whiteSpace:'nowrap' }}>
                       {c.status}
                     </span>
                   </td>
-                  <td style={{ padding:'12px 16px', color:'#64748b' }}>{c.expiry_date ? new Date(c.expiry_date).toLocaleDateString('en-GB') : '—'}</td>
-                  <td style={{ padding:'12px 16px', color:'#94a3b8', fontSize:12 }}>{new Date(c.issued_at).toLocaleDateString('en-GB')}</td>
+                  <td style={{ padding:'12px 14px' }}>
+                    {c.sender_name && <div style={{ fontWeight:700, color:'#0f172a' }}>{c.sender_name}</div>}
+                    {c.sender_phone && <div style={{ fontSize:11, color:'#64748b' }}>{c.sender_phone}</div>}
+                    {c.sender_email && <div style={{ fontSize:11, color:'#64748b' }}>{c.sender_email}</div>}
+                    {!c.sender_name && !c.sender_email && <span style={{ color:'#94a3b8' }}>—</span>}
+                  </td>
+                  <td style={{ padding:'12px 14px' }}>
+                    {c.recipient_name && <div style={{ fontWeight:700, color:'#0f172a' }}>{c.recipient_name}</div>}
+                    {c.recipient_phone && <div style={{ fontSize:11, color:'#64748b' }}>{c.recipient_phone}</div>}
+                    {c.recipient_email && <div style={{ fontSize:11, color:'#64748b' }}>{c.recipient_email}</div>}
+                    {!c.recipient_name && !c.recipient_email && <span style={{ color:'#94a3b8' }}>—</span>}
+                  </td>
+                  <td style={{ padding:'12px 14px', color:'#94a3b8', fontSize:12, whiteSpace:'nowrap' }}>{new Date(c.issued_at).toLocaleDateString('en-GB')}</td>
                 </tr>
               ))}
             </tbody>
