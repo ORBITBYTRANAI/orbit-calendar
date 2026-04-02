@@ -1974,10 +1974,11 @@ function GiftCardsView() {
   const [cards, setCards]     = useState([])
   const [loading, setLoading] = useState(true)
   const [search, setSearch]   = useState('')
-  const [value, setValue]     = useState('')
-  const [sender, setSender]   = useState(emptyPerson)
+  const [value, setValue]         = useState('')
+  const [paymentMethod, setPaymentMethod] = useState('')
+  const [sender, setSender]       = useState(emptyPerson)
   const [recipient, setRecipient] = useState(emptyPerson)
-  const [issuing, setIssuing] = useState(false)
+  const [issuing, setIssuing]     = useState(false)
   const [newCard, setNewCard] = useState(null)
   const [copied, setCopied]   = useState(false)
 
@@ -1990,13 +1991,15 @@ function GiftCardsView() {
 
   async function issueCard() {
     if (!value || parseFloat(value) <= 0) { alert('Enter a valid value'); return }
+    if (!paymentMethod) { alert('Please select a payment method'); return }
     setIssuing(true)
     try {
       const { data } = await axios.post(API + '/api/gift-cards/purchase', {
         value: parseFloat(value),
-        sender_name:    sender.name    || undefined,
-        sender_phone:   sender.phone   || undefined,
-        sender_email:   sender.email   || undefined,
+        payment_method:    paymentMethod,
+        sender_name:       sender.name    || undefined,
+        sender_phone:      sender.phone   || undefined,
+        sender_email:      sender.email   || undefined,
         recipient_name:    recipient.name    || undefined,
         recipient_phone:   recipient.phone   || undefined,
         recipient_email:   recipient.email   || undefined,
@@ -2004,6 +2007,7 @@ function GiftCardsView() {
       setCards(prev => [data, ...prev])
       setNewCard(data)
       setValue('')
+      setPaymentMethod('')
       setSender(emptyPerson)
       setRecipient(emptyPerson)
     } catch (err) {
@@ -2078,8 +2082,19 @@ function GiftCardsView() {
           </div>
         </div>
 
+        <div style={{ marginTop:18, maxWidth:200 }}>
+          <label style={{ ...lbl, marginTop:0 }}>Payment Method *</label>
+          <select style={{ ...inp, color: paymentMethod ? '#0f172a' : '#94a3b8' }}
+            value={paymentMethod} onChange={e => setPaymentMethod(e.target.value)}>
+            <option value="">Select…</option>
+            <option value="Terminal">Terminal</option>
+            <option value="Cash">Cash</option>
+            <option value="Split">Split</option>
+          </select>
+        </div>
+
         <button onClick={issueCard} disabled={issuing}
-          style={{ ...btnPrimary, marginTop:18, opacity: issuing ? 0.7 : 1 }}>
+          style={{ ...btnPrimary, marginTop:14, opacity: (issuing || !paymentMethod) ? 0.6 : 1 }}>
           {issuing ? 'Generating…' : 'Generate Card'}
         </button>
 
@@ -2119,7 +2134,7 @@ function GiftCardsView() {
           <table style={{ width:'100%', borderCollapse:'collapse', fontSize:13 }}>
             <thead>
               <tr style={{ background:'#f8fafc' }}>
-                {['Code','Value','Remaining','Status','Sender','Recipient','Issued'].map(h => (
+                {['Code','Value','Remaining','Status','Payment','Sender','Recipient','Issued'].map(h => (
                   <th key={h} style={{ padding:'10px 14px', textAlign:'left', fontWeight:800, color:'#64748b', fontSize:11, textTransform:'uppercase', letterSpacing:0.6, whiteSpace:'nowrap' }}>{h}</th>
                 ))}
               </tr>
@@ -2135,6 +2150,7 @@ function GiftCardsView() {
                       {c.status}
                     </span>
                   </td>
+                  <td style={{ padding:'12px 14px', color:'#64748b', fontWeight:600 }}>{c.payment_method || '—'}</td>
                   <td style={{ padding:'12px 14px' }}>
                     {c.sender_name && <div style={{ fontWeight:700, color:'#0f172a' }}>{c.sender_name}</div>}
                     {c.sender_phone && <div style={{ fontSize:11, color:'#64748b' }}>{c.sender_phone}</div>}
