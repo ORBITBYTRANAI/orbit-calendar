@@ -2364,7 +2364,12 @@ function WidgetSettingsView({ salon }) {
 
 // Auth wrapper — root export
 export default function App() {
- const [token, setToken] = useState(() => localStorage.getItem('orbit_token') || null)
+ const [token, setToken] = useState(() => {
+   const t = localStorage.getItem('orbit_token') || null
+   // Set header synchronously so MainApp's loadAll() has auth on first mount
+   if (t) axios.defaults.headers.common['Authorization'] = 'Bearer ' + t
+   return t
+ })
  const [salon, setSalon] = useState(() => {
    try { return JSON.parse(localStorage.getItem('orbit_salon') || 'null') } catch { return null }
  })
