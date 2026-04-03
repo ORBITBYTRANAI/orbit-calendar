@@ -433,10 +433,17 @@ function InboxView({ country }) {
  async function sendReply() {
  if (!reply.trim() || !activeConv) return
  setLoading(true)
- const optimistic = { id: 'tmp-' + Date.now(), body: reply, sender_type: 'staff', created_at: new Date().toISOString() }
+ const text = reply
+ const optimistic = { id: 'tmp-' + Date.now(), body: text, sender_type: 'staff', created_at: new Date().toISOString() }
  setMessages(prev => [...prev, optimistic])
  setReply('')
- try { await axios.post(API + '/api/conversations/' + activeConv.id + '/messages', { body: reply, sender_type: 'staff' }) } catch {}
+ try {
+   if (activeConv.channel === 'email') {
+     await axios.post(API + '/api/inbox/email-reply', { conversation_id: activeConv.id, body: text })
+   } else {
+     await axios.post(API + '/api/conversations/' + activeConv.id + '/messages', { body: text, sender_type: 'staff' })
+   }
+ } catch {}
  setLoading(false)
  loadConversations()
  }
@@ -503,11 +510,14 @@ function InboxView({ country }) {
  <div key={c.id} onClick={() => setActiveConv(c)}
  style={{ padding: '12px 16px', cursor: 'pointer', borderBottom: '1px solid #f1f5f9', background: activeConv?.id === c.id ? '#f0f7ff' : '#fff' }}>
  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 3 }}>
- <div style={{ fontWeight: 800, fontSize: 13 }}>{c.customer_name || 'Unknown'}</div>
+ <div style={{ fontWeight: 800, fontSize: 13 }}>{c.channel === 'email' && c.subject ? c.subject : (c.customer_name || 'Unknown')}</div>
  <div style={{ fontSize: 10, fontWeight: 800, padding: '2px 7px', borderRadius: 8, background: CHANNEL_COLORS[c.channel] || '#64748b', color: '#fff' }}>
  {CHANNEL_LABELS[c.channel] || c.channel}
  </div>
  </div>
+ {c.channel === 'email' && c.customer_name && (
+ <div style={{ fontSize: 11, color: '#64748b', fontWeight: 600, marginBottom: 2 }}>{c.customer_name}</div>
+ )}
  {c.folder && c.folder !== 'inquiries' && (
  <div style={{ fontSize: 10, color: '#c9a96e', fontWeight: 700, marginBottom: 2 }}>
  {FOLDER_ICONS[c.folder]} {FOLDER_LABELS[c.folder]}
@@ -527,8 +537,11 @@ function InboxView({ country }) {
  <div style={{ flex: 1, display: 'flex', flexDirection: 'column', background: '#f8fafc' }}>
  <>
  <div style={{ padding: '12px 20px', background: '#fff', borderBottom: '1px solid #e2e8f0', display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
- <div style={{ fontWeight: 900, fontSize: 15 }}>{activeConv.customer_name}</div>
- {activeConv.customer_phone && <div style={{ fontSize: 12, color: '#64748b' }}>{activeConv.customer_phone}</div>}
+ <div style={{ fontWeight: 900, fontSize: 15 }}>{activeConv.channel === 'email' && activeConv.subject ? activeConv.subject : activeConv.customer_name}</div>
+ {activeConv.channel === 'email' && activeConv.customer_email
+   ? <div style={{ fontSize: 12, color: '#64748b' }}>{activeConv.customer_name} &lt;{activeConv.customer_email}&gt;</div>
+   : activeConv.customer_phone && <div style={{ fontSize: 12, color: '#64748b' }}>{activeConv.customer_phone}</div>
+ }
  <div style={{ fontSize: 11, fontWeight: 800, padding: '2px 10px', borderRadius: 10, background: CHANNEL_COLORS[activeConv.channel] || '#64748b', color: '#fff' }}>
  {CHANNEL_LABELS[activeConv.channel] || activeConv.channel}
  </div>
