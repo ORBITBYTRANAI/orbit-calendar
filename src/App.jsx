@@ -435,7 +435,12 @@ function InboxView({ country }) {
  }
  }
  async function loadMessages(convId) {
- try { const { data } = await axios.get(API + '/api/conversations/' + convId + '/messages'); setMessages(data || []) } catch {}
+ try {
+   const { data } = await axios.get(API + '/api/conversations/' + convId + '/messages')
+   console.log('[Inbox] messages raw:', data)
+   if (data?.length) console.log('[Inbox] first message keys:', Object.keys(data[0]), 'values:', data[0])
+   setMessages(data || [])
+ } catch (err) { console.error('[Inbox] loadMessages error:', err) }
  }
  async function sendReply() {
  if (!reply.trim() || !activeConv) return
@@ -577,12 +582,16 @@ function InboxView({ country }) {
  borderBottomRightRadius: m.sender_type === 'staff' ? 4 : 14,
  borderBottomLeftRadius: m.sender_type === 'staff' ? 14 : 4,
  }}>
- {m.body?.startsWith('[Photo] ') ? (
- <a href={m.body.replace('[Photo] ', '')} target="_blank" rel="noreferrer"
- style={{ color: m.sender_type === 'staff' ? '#c9a96e' : '#0068ff', fontSize: 13 }}>
- View attached photo
- </a>
- ) : m.body}
+ {(() => {
+ const text = m.body || m.content || m.text || ''
+ if (text.startsWith('[Photo] ')) return (
+   <a href={text.replace('[Photo] ', '')} target="_blank" rel="noreferrer"
+   style={{ color: m.sender_type === 'staff' ? '#c9a96e' : '#0068ff', fontSize: 13 }}>
+   View attached photo
+   </a>
+ )
+ return text
+ })()}
  <div style={{ fontSize: 10, opacity: 0.5, marginTop: 4, textAlign: m.sender_type === 'staff' ? 'right' : 'left' }}>
  {new Date(m.created_at).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}
  </div>
