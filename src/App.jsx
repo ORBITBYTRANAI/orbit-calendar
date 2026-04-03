@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import Analytics from './Analytics'
+import ShopView from './Shop'
 import orbitLogo from './assets/orbit-logo.png'
 import FullCalendar from '@fullcalendar/react'
 import resourceTimeGridPlugin from '@fullcalendar/resource-timegrid'
@@ -1532,6 +1533,7 @@ await axios.put(API + '/api/bookings/' + editingId, {
  { id:'inbox', icon:'', label:'Inbox' },
  { id:'analytics', icon:'', label:'Analytics' },
 { id:'giftcards', icon:'', label:'Gift Cards' },
+{ id:'shop',      icon:'', label:'Shop' },
 { id:'widget',    icon:'', label:'Chat Widget' },
  ].map(n => (
  <button key={n.id} onClick={() => setView(n.id)}
@@ -1699,6 +1701,7 @@ await axios.put(API + '/api/bookings/' + editingId, {
  {view === 'inbox' && <InboxView country={salon?.country} />}
  {view === 'analytics'  && <div style={{ flex:1, overflowY:'auto' }}><Analytics /></div>}
 {view === 'giftcards'  && <GiftCardsView />}
+{view === 'shop'       && <ShopView />}
 {view === 'widget'     && <WidgetSettingsView salon={salon} />}
  </div>
 
