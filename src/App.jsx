@@ -425,7 +425,14 @@ function InboxView({ country }) {
  useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [messages])
 
  async function loadConversations() {
- try { const { data } = await axios.get(API + '/api/conversations'); setConversations(data || []) } catch {}
+ try {
+   const { data } = await axios.get(API + '/api/conversations')
+   console.log('[Inbox] raw API response:', data)
+   console.log('[Inbox] email conversations:', (data || []).filter(c => c.channel === 'email'))
+   setConversations(data || [])
+ } catch (err) {
+   console.error('[Inbox] loadConversations error:', err)
+ }
  }
  async function loadMessages(convId) {
  try { const { data } = await axios.get(API + '/api/conversations/' + convId + '/messages'); setMessages(data || []) } catch {}
