@@ -2364,9 +2364,9 @@ function WidgetSettingsView({ salon }) {
 
 // Auth wrapper — root export
 export default function App() {
- const [token, setToken] = useState(() => sessionStorage.getItem('orbit_token') || null)
+ const [token, setToken] = useState(() => localStorage.getItem('orbit_token') || null)
  const [salon, setSalon] = useState(() => {
-   try { return JSON.parse(sessionStorage.getItem('orbit_salon') || 'null') } catch { return null }
+   try { return JSON.parse(localStorage.getItem('orbit_salon') || 'null') } catch { return null }
  })
  const [page, setPage] = useState('login') // 'login' | 'signup'
 
@@ -2383,15 +2383,15 @@ export default function App() {
    if (!token) return
    axios.get(API + '/api/auth/me').then(r => {
      setSalon(r.data.salon)
-     sessionStorage.setItem('orbit_salon', JSON.stringify(r.data.salon))
+     localStorage.setItem('orbit_salon', JSON.stringify(r.data.salon))
    }).catch(() => handleLogout())
  }, [])
 
  function handleLogin(accessToken, salonData) {
    setToken(accessToken)
    setSalon(salonData)
-   sessionStorage.setItem('orbit_token', accessToken)
-   sessionStorage.setItem('orbit_salon', JSON.stringify(salonData))
+   localStorage.setItem('orbit_token', accessToken)
+   localStorage.setItem('orbit_salon', JSON.stringify(salonData))
    axios.defaults.headers.common['Authorization'] = 'Bearer ' + accessToken
  }
 
@@ -2401,8 +2401,8 @@ export default function App() {
    }
    setToken(null)
    setSalon(null)
-   sessionStorage.removeItem('orbit_token')
-   sessionStorage.removeItem('orbit_salon')
+   localStorage.removeItem('orbit_token')
+   localStorage.removeItem('orbit_salon')
    delete axios.defaults.headers.common['Authorization']
    setPage('login')
  }
