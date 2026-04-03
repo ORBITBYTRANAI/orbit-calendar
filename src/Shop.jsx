@@ -23,12 +23,20 @@ const card = {
 }
 
 export default function ShopView() {
-  const [tab, setTab] = useState('shop')
+  const [tab, setTab]       = useState('shop')
+  const [isAdmin, setIsAdmin] = useState(false)
+
+  useEffect(() => {
+    axios.get(`${API}/api/auth/me`)
+      .then(r => setIsAdmin(r.data?.salon?.is_admin === true))
+      .catch(() => {})
+  }, [])
 
   const tabs = [
     { id: 'shop',      label: 'Shop' },
     { id: 'inventory', label: 'Inventory' },
     { id: 'orders',    label: 'Orders' },
+    ...(isAdmin ? [{ id: 'admin', label: 'Admin' }] : []),
   ]
 
   return (
@@ -55,6 +63,7 @@ export default function ShopView() {
       {tab === 'shop'      && <ShopTab />}
       {tab === 'inventory' && <InventoryTab />}
       {tab === 'orders'    && <OrdersTab />}
+      {tab === 'admin' && isAdmin && <AdminTab />}
     </div>
   )
 }
@@ -519,6 +528,258 @@ function OrdersTab() {
           </div>
         </div>
       ))}
+    </div>
+  )
+}
+
+// ── Admin Tab ──────────────────────────────────────────────────────────────────
+
+const CATEGORIES = ['nails', 'tools', 'skincare']
+
+const inp = { padding: '6px 10px', borderRadius: 7, border: '1px solid #e2e8f0', fontSize: 13, fontFamily: 'inherit', outline: 'none' }
+const btnSave = { padding: '6px 14px', borderRadius: 7, border: 'none', background: BRAND, color: '#fff', fontWeight: 700, fontSize: 12, cursor: 'pointer', fontFamily: 'inherit' }
+const btnCancel = { padding: '6px 14px', borderRadius: 7, border: '1px solid #e2e8f0', background: '#fff', color: '#64748b', fontWeight: 700, fontSize: 12, cursor: 'pointer', fontFamily: 'inherit' }
+const btnDelete = { padding: '4px 10px', border: 'none', background: 'none', color: '#ef4444', fontWeight: 700, fontSize: 12, cursor: 'pointer', fontFamily: 'inherit' }
+const btnEdit   = { padding: '4px 10px', border: '1px solid #e2e8f0', borderRadius: 6, background: '#fff', color: '#475569', fontWeight: 700, fontSize: 12, cursor: 'pointer', fontFamily: 'inherit' }
+
+const TH = ({ children }) => (
+  <th style={{ padding: '9px 14px', textAlign: 'left', fontWeight: 800, color: '#64748b', fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.6, borderBottom: '1px solid #e2e8f0', whiteSpace: 'nowrap' }}>
+    {children}
+  </th>
+)
+const TD = ({ children, style }) => (
+  <td style={{ padding: '10px 14px', fontSize: 13, color: '#0f172a', borderBottom: '1px solid #f1f5f9', verticalAlign: 'middle', ...style }}>
+    {children}
+  </td>
+)
+
+function AdminTab() {
+  const [suppliers, setSuppliers] = useState([])
+  const [products,  setProducts]  = useState([])
+
+  const loadSuppliers = useCallback(() =>
+    axios.get(`${API}/api/shop/suppliers`).then(r => setSuppliers(r.data)).catch(console.error)
+  , [])
+
+  const loadProducts = useCallback(() =>
+    axios.get(`${API}/api/shop/products`).then(r => setProducts(r.data)).catch(console.error)
+  , [])
+
+  useEffect(() => { loadSuppliers(); loadProducts() }, [loadSuppliers, loadProducts])
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 32 }}>
+      <SuppliersSection suppliers={suppliers} onRefresh={loadSuppliers} />
+      <ProductsSection  products={products}   suppliers={suppliers} onRefresh={() => { loadProducts(); loadSuppliers() }} />
+    </div>
+  )
+}
+
+// ── Suppliers section ──────────────────────────────────────────────────────────
+
+function emptySupplier() { return { name: '', contact_email: '', website: '' } }
+
+function SuppliersSection({ suppliers, onRefresh }) {
+  const [adding,  setAdding]  = useState(false)
+  const [editId,  setEditId]  = useState(null)
+  const [form,    setForm]    = useState(emptySupplier())
+  const [saving,  setSaving]  = useState(false)
+
+  function startAdd()        { setAdding(true); setEditId(null); setForm(emptySupplier()) }
+  function startEdit(s)      { setEditId(s.id); setAdding(false); setForm({ name: s.name, contact_email: s.contact_email || '', website: s.website || '' }) }
+  function cancel()          { setAdding(false); setEditId(null) }
+  function set(k, v)         { setForm(f => ({ ...f, [k]: v })) }
+
+  async function save() {
+    if (!form.name.trim()) return alert('Name is required')
+    setSaving(true)
+    try {
+      if (editId) {
+        await axios.patch(`${API}/api/shop/admin/suppliers/${editId}`, form)
+      } else {
+        await axios.post(`${API}/api/shop/admin/suppliers`, form)
+      }
+      cancel(); onRefresh()
+    } catch (err) {
+      alert(err.response?.data?.error || err.message)
+    } finally { setSaving(false) }
+  }
+
+  async function del(id) {
+    if (!window.confirm('Delete this supplier?')) return
+    try {
+      await axios.delete(`${API}/api/shop/admin/suppliers/${id}`)
+      onRefresh()
+    } catch (err) {
+      alert(err.response?.data?.error || err.message)
+    }
+  }
+
+  const formRow = (
+    <tr>
+      <TD><input value={form.name}          onChange={e => set('name', e.target.value)}          placeholder="Supplier name" style={{ ...inp, width: 160 }} /></TD>
+      <TD><input value={form.contact_email} onChange={e => set('contact_email', e.target.value)} placeholder="contact@example.com" style={{ ...inp, width: 180 }} /></TD>
+      <TD><input value={form.website}       onChange={e => set('website', e.target.value)}       placeholder="https://…" style={{ ...inp, width: 160 }} /></TD>
+      <TD>
+        <div style={{ display: 'flex', gap: 6 }}>
+          <button onClick={save} disabled={saving} style={btnSave}>{saving ? 'Saving…' : 'Save'}</button>
+          <button onClick={cancel} style={btnCancel}>Cancel</button>
+        </div>
+      </TD>
+    </tr>
+  )
+
+  return (
+    <div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+        <h2 style={{ fontSize: 15, fontWeight: 800, color: '#0f172a', margin: 0 }}>Suppliers</h2>
+        {!adding && <button onClick={startAdd} style={{ ...btnSave, padding: '7px 16px' }}>+ Add Supplier</button>}
+      </div>
+      <div style={{ ...card, padding: 0, overflow: 'hidden' }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+          <thead><tr style={{ background: '#f8fafc' }}>
+            <TH>Name</TH><TH>Contact email</TH><TH>Website</TH><TH></TH>
+          </tr></thead>
+          <tbody>
+            {adding && formRow}
+            {suppliers.map(s => editId === s.id ? (
+              <tr key={s.id}>{formRow.props.children}</tr>
+            ) : (
+              <tr key={s.id}>
+                <TD style={{ fontWeight: 700 }}>{s.name}</TD>
+                <TD style={{ color: '#64748b' }}>{s.contact_email || '—'}</TD>
+                <TD style={{ color: '#64748b' }}>{s.website || '—'}</TD>
+                <TD>
+                  <div style={{ display: 'flex', gap: 4 }}>
+                    <button onClick={() => startEdit(s)} style={btnEdit}>Edit</button>
+                    <button onClick={() => del(s.id)} style={btnDelete}>Delete</button>
+                  </div>
+                </TD>
+              </tr>
+            ))}
+            {suppliers.length === 0 && !adding && (
+              <tr><td colSpan={4} style={{ padding: '20px 14px', color: '#94a3b8', fontSize: 13, textAlign: 'center' }}>No suppliers yet</td></tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  )
+}
+
+// ── Products section ───────────────────────────────────────────────────────────
+
+function emptyProduct() { return { emoji: '', name: '', variant: '', price: '', category: CATEGORIES[0], supplier_id: '' } }
+
+function ProductsSection({ products, suppliers, onRefresh }) {
+  const [adding, setAdding]  = useState(false)
+  const [editId, setEditId]  = useState(null)
+  const [form,   setForm]    = useState(emptyProduct())
+  const [saving, setSaving]  = useState(false)
+
+  function startAdd()   { setAdding(true); setEditId(null); setForm(emptyProduct()) }
+  function startEdit(p) { setEditId(p.id); setAdding(false); setForm({ emoji: p.emoji || '', name: p.name, variant: p.variant || '', price: p.price || '', category: p.category || CATEGORIES[0], supplier_id: p.supplier_id || '' }) }
+  function cancel()     { setAdding(false); setEditId(null) }
+  function set(k, v)    { setForm(f => ({ ...f, [k]: v })) }
+
+  async function save() {
+    if (!form.name.trim()) return alert('Name is required')
+    setSaving(true)
+    try {
+      const body = { ...form, price: parseFloat(form.price) || 0, supplier_id: form.supplier_id || null }
+      if (editId) {
+        await axios.patch(`${API}/api/shop/admin/products/${editId}`, body)
+      } else {
+        await axios.post(`${API}/api/shop/admin/products`, body)
+      }
+      cancel(); onRefresh()
+    } catch (err) {
+      alert(err.response?.data?.error || err.message)
+    } finally { setSaving(false) }
+  }
+
+  async function del(id) {
+    if (!window.confirm('Delete this product?')) return
+    try {
+      await axios.delete(`${API}/api/shop/admin/products/${id}`)
+      onRefresh()
+    } catch (err) {
+      alert(err.response?.data?.error || err.message)
+    }
+  }
+
+  const formRow = (
+    <tr>
+      <TD><input value={form.emoji}   onChange={e => set('emoji', e.target.value)}   placeholder="💅" style={{ ...inp, width: 52, textAlign: 'center' }} /></TD>
+      <TD><input value={form.name}    onChange={e => set('name', e.target.value)}    placeholder="Product name" style={{ ...inp, width: 140 }} /></TD>
+      <TD><input value={form.variant} onChange={e => set('variant', e.target.value)} placeholder="e.g. 15ml" style={{ ...inp, width: 100 }} /></TD>
+      <TD>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+          <span style={{ fontSize: 13, color: '#64748b' }}>£</span>
+          <input type="number" min={0} step={0.01} value={form.price} onChange={e => set('price', e.target.value)} style={{ ...inp, width: 70 }} />
+        </div>
+      </TD>
+      <TD>
+        <select value={form.category} onChange={e => set('category', e.target.value)} style={{ ...inp }}>
+          {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+        </select>
+      </TD>
+      <TD>
+        <select value={form.supplier_id} onChange={e => set('supplier_id', e.target.value)} style={{ ...inp }}>
+          <option value="">— none —</option>
+          {suppliers.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+        </select>
+      </TD>
+      <TD>
+        <div style={{ display: 'flex', gap: 6 }}>
+          <button onClick={save} disabled={saving} style={btnSave}>{saving ? 'Saving…' : 'Save'}</button>
+          <button onClick={cancel} style={btnCancel}>Cancel</button>
+        </div>
+      </TD>
+    </tr>
+  )
+
+  return (
+    <div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+        <h2 style={{ fontSize: 15, fontWeight: 800, color: '#0f172a', margin: 0 }}>Products</h2>
+        {!adding && <button onClick={startAdd} style={{ ...btnSave, padding: '7px 16px' }}>+ Add Product</button>}
+      </div>
+      <div style={{ ...card, padding: 0, overflow: 'hidden' }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+          <thead><tr style={{ background: '#f8fafc' }}>
+            <TH>Emoji</TH><TH>Name</TH><TH>Variant</TH><TH>Price</TH><TH>Category</TH><TH>Supplier</TH><TH></TH>
+          </tr></thead>
+          <tbody>
+            {adding && formRow}
+            {products.map(p => editId === p.id ? (
+              <tr key={p.id}>{formRow.props.children}</tr>
+            ) : (
+              <tr key={p.id}>
+                <TD style={{ fontSize: 20 }}>{p.emoji || '—'}</TD>
+                <TD style={{ fontWeight: 700 }}>{p.name}</TD>
+                <TD style={{ color: '#64748b' }}>{p.variant || '—'}</TD>
+                <TD>£{parseFloat(p.price || 0).toFixed(2)}</TD>
+                <TD style={{ color: '#64748b' }}>{p.category || '—'}</TD>
+                <TD>
+                  {p.supplier_name
+                    ? <span style={{ background: supplierColor(p.supplier_name), borderRadius: 4, padding: '2px 7px', fontSize: 11, fontWeight: 700 }}>{p.supplier_name}</span>
+                    : <span style={{ color: '#94a3b8' }}>—</span>}
+                </TD>
+                <TD>
+                  <div style={{ display: 'flex', gap: 4 }}>
+                    <button onClick={() => startEdit(p)} style={btnEdit}>Edit</button>
+                    <button onClick={() => del(p.id)} style={btnDelete}>Delete</button>
+                  </div>
+                </TD>
+              </tr>
+            ))}
+            {products.length === 0 && !adding && (
+              <tr><td colSpan={7} style={{ padding: '20px 14px', color: '#94a3b8', fontSize: 13, textAlign: 'center' }}>No products yet</td></tr>
+            )}
+          </tbody>
+        </table>
+      </div>
     </div>
   )
 }
