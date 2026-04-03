@@ -464,7 +464,8 @@ function InboxView({ country }) {
 
  const filtered = conversations.filter(c => {
  const chMatch = channel === 'all' || c.channel === channel
- const folderMatch = folder === 'all' || c.folder === folder || (folder === 'inquiries' && !c.folder)
+ // folder filter only applies to website conversations; email/messenger/etc always pass
+ const folderMatch = c.channel !== 'website' || folder === 'all' || c.folder === folder || (folder === 'inquiries' && !c.folder)
  return chMatch && folderMatch
  })
 
@@ -484,7 +485,7 @@ function InboxView({ country }) {
 
  {/* Channel dropdown */}
  <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
- <select value={channel} onChange={e => setChannel(e.target.value)}
+ <select value={channel} onChange={e => { const v = e.target.value; setChannel(v); if (v !== 'all' && v !== 'website') setFolder('all') }}
  style={{ flex: 1, padding: '7px 10px', borderRadius: 8, border: '1px solid #e2e8f0', fontSize: 13, fontWeight: 600, background: '#fff', outline: 'none', cursor: 'pointer' }}>
  <option value="all">All Channels</option>
  {CHANNELS.filter(c => c !== 'all').map(ch => (
