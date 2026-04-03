@@ -245,7 +245,7 @@ function ShopTab() {
                 ) : (
                   <button onClick={placeOrder} disabled={placing} style={{
                     width: '100%', padding: '10px 0', borderRadius: 9, border: 'none',
-                    background: BRAND, color: '#fff', fontWeight: 800, fontSize: 13, cursor: 'pointer', fontFamily: 'inherit',
+                    background: '#0f172a', color: '#fff', fontWeight: 800, fontSize: 13, cursor: 'pointer', fontFamily: 'inherit',
                   }}>{placing ? 'Placing…' : 'Place Order'}</button>
                 )}
               </div>
@@ -263,7 +263,10 @@ function ProductCard({ product: p, qty, onAdd, onRemove }) {
   const pct = p.max_stock > 0 ? (p.stock_level / p.max_stock) * 100 : 0
   return (
     <div style={{ ...card, padding: 14, display: 'flex', flexDirection: 'column', gap: 8 }}>
-      <div style={{ fontSize: 28, textAlign: 'center' }}>{p.emoji || '📦'}</div>
+      {p.image_base64
+        ? <img src={p.image_base64} alt={p.name} style={{ width: 56, height: 56, objectFit: 'cover', borderRadius: 8, display: 'block', margin: '0 auto' }} />
+        : <div style={{ fontSize: 28, textAlign: 'center' }}>{p.emoji || '📦'}</div>
+      }
       <div>
         <div style={{ fontSize: 13, fontWeight: 700, color: '#0f172a', lineHeight: 1.3 }}>{p.name}</div>
         {p.variant && <div style={{ fontSize: 11, color: '#94a3b8' }}>{p.variant}</div>}
@@ -276,14 +279,14 @@ function ProductCard({ product: p, qty, onAdd, onRemove }) {
         <span style={{ fontSize: 13, fontWeight: 800, color: BRAND }}>£{parseFloat(p.price || 0).toFixed(2)}</span>
         {qty === 0 ? (
           <button onClick={onAdd} style={{
-            padding: '5px 12px', borderRadius: 7, border: 'none', background: BRAND,
+            padding: '5px 12px', borderRadius: 7, border: 'none', background: '#0f172a',
             color: '#fff', fontWeight: 700, fontSize: 12, cursor: 'pointer', fontFamily: 'inherit',
           }}>Add</button>
         ) : (
           <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
             <button onClick={onRemove} style={{ width: 26, height: 26, borderRadius: 6, border: '1px solid #e2e8f0', background: '#fff', cursor: 'pointer', fontSize: 15 }}>−</button>
             <span style={{ fontSize: 13, fontWeight: 800, minWidth: 18, textAlign: 'center' }}>{qty}</span>
-            <button onClick={onAdd} style={{ width: 26, height: 26, borderRadius: 6, border: 'none', background: BRAND, color: '#fff', cursor: 'pointer', fontSize: 15 }}>+</button>
+            <button onClick={onAdd} style={{ width: 26, height: 26, borderRadius: 6, border: 'none', background: '#0f172a', color: '#fff', cursor: 'pointer', fontSize: 15 }}>+</button>
           </div>
         )}
       </div>
@@ -305,20 +308,50 @@ function StockBar({ pct, level }) {
 
 // ── Inventory Tab ──────────────────────────────────────────────────────────────
 
+const emptyInvForm = () => ({ product_id: '', stock_level: 0, max_stock: 100, auto_reorder: false, reorder_threshold: 10, reorder_qty: 5 })
+
 function InventoryTab() {
-  const [rows, setRows]   = useState([])
-  const [loading, setLoading] = useState(true)
-  const [saving, setSaving]   = useState({})
+  const [rows,     setRows]     = useState([])
+  const [products, setProducts] = useState([])
+  const [loading,  setLoading]  = useState(true)
+  const [saving,   setSaving]   = useState({})
+  const [adding,   setAdding]   = useState(false)
+  const [invForm,  setInvForm]  = useState(emptyInvForm())
+  const [formSaving, setFormSaving] = useState(false)
 
   const load = useCallback(() => {
     setLoading(true)
-    axios.get(`${API}/api/shop/inventory`)
-      .then(r => setRows(r.data))
-      .catch(console.error)
-      .finally(() => setLoading(false))
+    Promise.all([
+      axios.get(`${API}/api/shop/inventory`),
+      axios.get(`${API}/api/shop/products`),
+    ]).then(([invR, prodR]) => {
+      setRows(invR.data)
+      setProducts(prodR.data)
+    }).catch(console.error).finally(() => setLoading(false))
   }, [])
 
   useEffect(load, [load])
+
+  function setF(k, v) { setInvForm(f => ({ ...f, [k]: v })) }
+
+  async function saveNewInventory() {
+    if (!invForm.product_id) return alert('Select a product')
+    setFormSaving(true)
+    try {
+      await axios.patch(`${API}/api/shop/inventory/${invForm.product_id}`, {
+        stock_level:       invForm.stock_level,
+        max_stock:         invForm.max_stock,
+        auto_reorder:      invForm.auto_reorder,
+        reorder_threshold: invForm.reorder_threshold,
+        reorder_qty:       invForm.reorder_qty,
+      })
+      setAdding(false)
+      setInvForm(emptyInvForm())
+      load()
+    } catch (err) {
+      alert('Save failed: ' + (err.response?.data?.error || err.message))
+    } finally { setFormSaving(false) }
+  }
 
   async function patchRow(productId, patch) {
     setSaving(s => ({ ...s, [productId]: true }))
@@ -337,7 +370,6 @@ function InventoryTab() {
       reorder_threshold: field === 'reorder_threshold' ? value : (row.reorder_threshold ?? 10),
       reorder_qty:       field === 'reorder_qty'       ? value : (row.reorder_qty       ?? 5),
     }
-    // Optimistic update
     setRows(rs => rs.map(r => r.product_id === row.product_id ? { ...r, ...updated } : r))
     await patchRow(row.product_id, updated)
   }
@@ -359,26 +391,64 @@ function InventoryTab() {
     }
   }
 
-  async function runAutoReorder() {
-    try {
-      const r = await axios.post(`${API}/api/shop/inventory/auto-reorder`)
-      alert(`Auto-reorder complete: ${r.data.orders_created} order(s) created`)
-      load()
-    } catch (err) {
-      alert('Auto-reorder failed: ' + (err.response?.data?.error || err.message))
-    }
-  }
+  const numInp = { width: 60, padding: '4px 8px', borderRadius: 6, border: '1px solid #e2e8f0', fontSize: 13, fontFamily: 'inherit', outline: 'none' }
 
   if (loading) return <p style={{ color: '#94a3b8', fontSize: 13 }}>Loading inventory…</p>
 
   return (
     <div>
       <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 16 }}>
-        <button onClick={runAutoReorder} style={{
-          padding: '9px 18px', borderRadius: 9, border: 'none', background: BRAND,
-          color: '#fff', fontWeight: 800, fontSize: 13, cursor: 'pointer', fontFamily: 'inherit',
-        }}>Run Auto-Reorder</button>
+        {!adding && (
+          <button onClick={() => setAdding(true)} style={{
+            padding: '9px 18px', borderRadius: 9, border: 'none', background: '#0f172a',
+            color: '#fff', fontWeight: 800, fontSize: 13, cursor: 'pointer', fontFamily: 'inherit',
+          }}>Add Inventory</button>
+        )}
       </div>
+
+      {adding && (
+        <div style={{ ...card, marginBottom: 16 }}>
+          <div style={{ fontWeight: 800, fontSize: 13, color: '#0f172a', marginBottom: 12 }}>Add inventory record</div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'flex-end' }}>
+            <div>
+              <div style={{ fontSize: 11, fontWeight: 700, color: '#64748b', marginBottom: 4, textTransform: 'uppercase', letterSpacing: 0.6 }}>Product</div>
+              <select value={invForm.product_id} onChange={e => setF('product_id', e.target.value)}
+                style={{ ...numInp, width: 200 }}>
+                <option value="">— select —</option>
+                {products.map(p => <option key={p.id} value={p.id}>{p.name}{p.variant ? ` (${p.variant})` : ''}</option>)}
+              </select>
+            </div>
+            <div>
+              <div style={{ fontSize: 11, fontWeight: 700, color: '#64748b', marginBottom: 4, textTransform: 'uppercase', letterSpacing: 0.6 }}>Stock level</div>
+              <input type="number" min={0} value={invForm.stock_level} onChange={e => setF('stock_level', parseInt(e.target.value) || 0)} style={numInp} />
+            </div>
+            <div>
+              <div style={{ fontSize: 11, fontWeight: 700, color: '#64748b', marginBottom: 4, textTransform: 'uppercase', letterSpacing: 0.6 }}>Max stock</div>
+              <input type="number" min={1} value={invForm.max_stock} onChange={e => setF('max_stock', parseInt(e.target.value) || 1)} style={numInp} />
+            </div>
+            <div>
+              <div style={{ fontSize: 11, fontWeight: 700, color: '#64748b', marginBottom: 4, textTransform: 'uppercase', letterSpacing: 0.6 }}>Threshold</div>
+              <input type="number" min={0} value={invForm.reorder_threshold} onChange={e => setF('reorder_threshold', parseInt(e.target.value) || 0)} style={numInp} />
+            </div>
+            <div>
+              <div style={{ fontSize: 11, fontWeight: 700, color: '#64748b', marginBottom: 4, textTransform: 'uppercase', letterSpacing: 0.6 }}>Reorder qty</div>
+              <input type="number" min={1} value={invForm.reorder_qty} onChange={e => setF('reorder_qty', parseInt(e.target.value) || 1)} style={numInp} />
+            </div>
+            <div>
+              <div style={{ fontSize: 11, fontWeight: 700, color: '#64748b', marginBottom: 4, textTransform: 'uppercase', letterSpacing: 0.6 }}>Auto-reorder</div>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', height: 30 }}>
+                <input type="checkbox" checked={invForm.auto_reorder} onChange={e => setF('auto_reorder', e.target.checked)}
+                  style={{ accentColor: '#0f172a', width: 16, height: 16 }} />
+                <span style={{ fontSize: 12, color: '#64748b' }}>On</span>
+              </label>
+            </div>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button onClick={saveNewInventory} disabled={formSaving} style={{ ...btnSave, padding: '7px 16px' }}>{formSaving ? 'Saving…' : 'Save'}</button>
+              <button onClick={() => { setAdding(false); setInvForm(emptyInvForm()) }} style={{ ...btnCancel, padding: '7px 16px' }}>Cancel</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <div style={{ ...card, padding: 0, overflow: 'hidden' }}>
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
@@ -397,7 +467,10 @@ function InventoryTab() {
                 <tr key={row.product_id} style={{ borderBottom: '1px solid #f1f5f9' }}>
                   <td style={{ padding: '12px 16px' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                      <span style={{ fontSize: 20 }}>{p.emoji}</span>
+                      {p.image_base64
+                        ? <img src={p.image_base64} alt={p.name} style={{ width: 28, height: 28, objectFit: 'cover', borderRadius: 5 }} />
+                        : <span style={{ fontSize: 20 }}>{p.emoji}</span>
+                      }
                       <div>
                         <div style={{ fontWeight: 700, color: '#0f172a' }}>{p.name}</div>
                         {p.variant && <div style={{ fontSize: 11, color: '#94a3b8' }}>{p.variant}</div>}
@@ -417,7 +490,7 @@ function InventoryTab() {
                     <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>
                       <input type="checkbox" checked={row.auto_reorder ?? false}
                         onChange={e => updateField(row, 'auto_reorder', e.target.checked)}
-                        style={{ accentColor: BRAND, width: 16, height: 16 }}
+                        style={{ accentColor: '#0f172a', width: 16, height: 16 }}
                       />
                       <span style={{ fontSize: 12, color: '#64748b' }}>{row.auto_reorder ? 'On' : 'Off'}</span>
                     </label>
@@ -425,19 +498,19 @@ function InventoryTab() {
                   <td style={{ padding: '12px 16px' }}>
                     <input type="number" min={0} value={row.reorder_threshold ?? 10}
                       onChange={e => updateField(row, 'reorder_threshold', parseInt(e.target.value) || 0)}
-                      style={{ width: 60, padding: '4px 8px', borderRadius: 6, border: '1px solid #e2e8f0', fontSize: 13, fontFamily: 'inherit', outline: 'none' }}
+                      style={numInp}
                     />
                   </td>
                   <td style={{ padding: '12px 16px' }}>
                     <input type="number" min={1} value={row.reorder_qty ?? 5}
                       onChange={e => updateField(row, 'reorder_qty', parseInt(e.target.value) || 1)}
-                      style={{ width: 60, padding: '4px 8px', borderRadius: 6, border: '1px solid #e2e8f0', fontSize: 13, fontFamily: 'inherit', outline: 'none' }}
+                      style={numInp}
                     />
                   </td>
                   <td style={{ padding: '12px 16px' }}>
                     <button onClick={() => quickReorder(row)} style={{
-                      padding: '5px 12px', borderRadius: 7, border: `1px solid ${BRAND}`,
-                      background: '#fff', color: BRAND, fontWeight: 700, fontSize: 12, cursor: 'pointer', fontFamily: 'inherit',
+                      padding: '5px 12px', borderRadius: 7, border: 'none',
+                      background: '#0f172a', color: '#fff', fontWeight: 700, fontSize: 12, cursor: 'pointer', fontFamily: 'inherit',
                     }}>Reorder</button>
                     {saving[row.product_id] && <span style={{ marginLeft: 6, fontSize: 11, color: '#94a3b8' }}>saving…</span>}
                   </td>
@@ -448,7 +521,7 @@ function InventoryTab() {
         </table>
         {rows.length === 0 && (
           <div style={{ padding: 32, textAlign: 'center', color: '#94a3b8', fontSize: 13 }}>
-            No inventory records yet. Add products and stock in Supabase.
+            No inventory records yet. Click "Add Inventory" to set stock levels.
           </div>
         )}
       </div>
@@ -507,8 +580,8 @@ function OrdersTab() {
             <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
               <span style={{ fontWeight: 800, color: BRAND, fontSize: 14 }}>£{parseFloat(order.total || 0).toFixed(2)}</span>
               <button onClick={() => reorder(order)} style={{
-                padding: '5px 12px', borderRadius: 7, border: `1px solid ${BRAND}`,
-                background: '#fff', color: BRAND, fontWeight: 700, fontSize: 12, cursor: 'pointer', fontFamily: 'inherit',
+                padding: '5px 12px', borderRadius: 7, border: 'none',
+                background: '#0f172a', color: '#fff', fontWeight: 700, fontSize: 12, cursor: 'pointer', fontFamily: 'inherit',
               }}>Reorder</button>
             </div>
           </div>
@@ -537,7 +610,7 @@ function OrdersTab() {
 const CATEGORIES = ['nails', 'tools', 'skincare']
 
 const inp = { padding: '6px 10px', borderRadius: 7, border: '1px solid #e2e8f0', fontSize: 13, fontFamily: 'inherit', outline: 'none' }
-const btnSave = { padding: '6px 14px', borderRadius: 7, border: 'none', background: BRAND, color: '#fff', fontWeight: 700, fontSize: 12, cursor: 'pointer', fontFamily: 'inherit' }
+const btnSave = { padding: '6px 14px', borderRadius: 7, border: 'none', background: '#0f172a', color: '#fff', fontWeight: 700, fontSize: 12, cursor: 'pointer', fontFamily: 'inherit' }
 const btnCancel = { padding: '6px 14px', borderRadius: 7, border: '1px solid #e2e8f0', background: '#fff', color: '#64748b', fontWeight: 700, fontSize: 12, cursor: 'pointer', fontFamily: 'inherit' }
 const btnDelete = { padding: '4px 10px', border: 'none', background: 'none', color: '#ef4444', fontWeight: 700, fontSize: 12, cursor: 'pointer', fontFamily: 'inherit' }
 const btnEdit   = { padding: '4px 10px', border: '1px solid #e2e8f0', borderRadius: 6, background: '#fff', color: '#475569', fontWeight: 700, fontSize: 12, cursor: 'pointer', fontFamily: 'inherit' }
@@ -669,7 +742,23 @@ function SuppliersSection({ suppliers, onRefresh }) {
 
 // ── Products section ───────────────────────────────────────────────────────────
 
-function emptyProduct() { return { emoji: '', name: '', variant: '', price: '', category: CATEGORIES[0], supplier_id: '' } }
+function compressImage(file, cb) {
+  const url = URL.createObjectURL(file)
+  const img = new window.Image()
+  img.onload = () => {
+    const MAX = 800
+    const scale = img.width > MAX ? MAX / img.width : 1
+    const canvas = document.createElement('canvas')
+    canvas.width  = Math.round(img.width  * scale)
+    canvas.height = Math.round(img.height * scale)
+    canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height)
+    URL.revokeObjectURL(url)
+    cb(canvas.toDataURL('image/jpeg', 0.7))
+  }
+  img.src = url
+}
+
+function emptyProduct() { return { name: '', variant: '', price: '', category: CATEGORIES[0], supplier_id: '', image_base64: null } }
 
 function ProductsSection({ products, suppliers, onRefresh }) {
   const [adding, setAdding]  = useState(false)
@@ -678,7 +767,7 @@ function ProductsSection({ products, suppliers, onRefresh }) {
   const [saving, setSaving]  = useState(false)
 
   function startAdd()   { setAdding(true); setEditId(null); setForm(emptyProduct()) }
-  function startEdit(p) { setEditId(p.id); setAdding(false); setForm({ emoji: p.emoji || '', name: p.name, variant: p.variant || '', price: p.price || '', category: p.category || CATEGORIES[0], supplier_id: p.supplier_id || '' }) }
+  function startEdit(p) { setEditId(p.id); setAdding(false); setForm({ name: p.name, variant: p.variant || '', price: p.price || '', category: p.category || CATEGORIES[0], supplier_id: p.supplier_id || '', image_base64: p.image_base64 || null }) }
   function cancel()     { setAdding(false); setEditId(null) }
   function set(k, v)    { setForm(f => ({ ...f, [k]: v })) }
 
@@ -686,7 +775,7 @@ function ProductsSection({ products, suppliers, onRefresh }) {
     if (!form.name.trim()) return alert('Name is required')
     setSaving(true)
     try {
-      const body = { ...form, price: parseFloat(form.price) || 0, supplier_id: form.supplier_id || null }
+      const body = { ...form, price: parseFloat(form.price) || 0, supplier_id: form.supplier_id || null, image_base64: form.image_base64 || null }
       if (editId) {
         await axios.patch(`${API}/api/shop/admin/products/${editId}`, body)
       } else {
@@ -710,7 +799,16 @@ function ProductsSection({ products, suppliers, onRefresh }) {
 
   const formRow = (
     <tr>
-      <TD><input value={form.emoji}   onChange={e => set('emoji', e.target.value)}   placeholder="💅" style={{ ...inp, width: 52, textAlign: 'center' }} /></TD>
+      <TD>
+        <label style={{ cursor: 'pointer', display: 'block' }}>
+          {form.image_base64
+            ? <img src={form.image_base64} alt="" style={{ width: 40, height: 40, objectFit: 'cover', borderRadius: 6, display: 'block' }} />
+            : <div style={{ width: 40, height: 40, borderRadius: 6, background: '#f1f5f9', border: '1px dashed #cbd5e1', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 16 }}>+</div>
+          }
+          <input type="file" accept="image/*" style={{ display: 'none' }}
+            onChange={e => { if (e.target.files[0]) compressImage(e.target.files[0], b64 => set('image_base64', b64)) }} />
+        </label>
+      </TD>
       <TD><input value={form.name}    onChange={e => set('name', e.target.value)}    placeholder="Product name" style={{ ...inp, width: 140 }} /></TD>
       <TD><input value={form.variant} onChange={e => set('variant', e.target.value)} placeholder="e.g. 15ml" style={{ ...inp, width: 100 }} /></TD>
       <TD>
@@ -748,7 +846,7 @@ function ProductsSection({ products, suppliers, onRefresh }) {
       <div style={{ ...card, padding: 0, overflow: 'hidden' }}>
         <table style={{ width: '100%', borderCollapse: 'collapse' }}>
           <thead><tr style={{ background: '#f8fafc' }}>
-            <TH>Emoji</TH><TH>Name</TH><TH>Variant</TH><TH>Price</TH><TH>Category</TH><TH>Supplier</TH><TH></TH>
+            <TH>Photo</TH><TH>Name</TH><TH>Variant</TH><TH>Price</TH><TH>Category</TH><TH>Supplier</TH><TH></TH>
           </tr></thead>
           <tbody>
             {adding && formRow}
@@ -756,7 +854,12 @@ function ProductsSection({ products, suppliers, onRefresh }) {
               <tr key={p.id}>{formRow.props.children}</tr>
             ) : (
               <tr key={p.id}>
-                <TD style={{ fontSize: 20 }}>{p.emoji || '—'}</TD>
+                <TD>
+                  {p.image_base64
+                    ? <img src={p.image_base64} alt={p.name} style={{ width: 40, height: 40, objectFit: 'cover', borderRadius: 6 }} />
+                    : <div style={{ width: 40, height: 40, borderRadius: 6, background: '#f1f5f9', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18 }}>{p.emoji || '📦'}</div>
+                  }
+                </TD>
                 <TD style={{ fontWeight: 700 }}>{p.name}</TD>
                 <TD style={{ color: '#64748b' }}>{p.variant || '—'}</TD>
                 <TD>£{parseFloat(p.price || 0).toFixed(2)}</TD>
