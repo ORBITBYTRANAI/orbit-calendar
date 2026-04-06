@@ -421,6 +421,7 @@ function InboxView({ country }) {
  const [activeConv, setActiveConv] = useState(null)
  const [messages, setMessages] = useState([])
  const [reply, setReply] = useState('')
+ const [replySubject, setReplySubject] = useState('')
  const [loading, setLoading] = useState(false)
  const [channel, setChannel] = useState('all')
  const [folder, setFolder] = useState('all')
@@ -457,7 +458,8 @@ function InboxView({ country }) {
  setReply('')
  try {
    if (activeConv.channel === 'email') {
-     await axios.post(API + '/api/inbox/email-reply', { conversation_id: activeConv.id, body: text })
+     await axios.post(API + '/api/inbox/email-reply', { conversation_id: activeConv.id, body: text, subject: replySubject.trim() })
+     setReplySubject('')
    } else {
      await axios.post(API + '/api/conversations/' + activeConv.id + '/messages', { body: text, sender_type: 'staff' })
    }
@@ -607,7 +609,15 @@ function InboxView({ country }) {
  <div ref={bottomRef} />
  </div>
 
- <div style={{ padding: 16, background: '#fff', borderTop: '1px solid #e2e8f0', display: 'flex', gap: 10 }}>
+ <div style={{ padding: 16, background: '#fff', borderTop: '1px solid #e2e8f0', display: 'flex', flexDirection: 'column', gap: 8 }}>
+ {activeConv?.channel === 'email' && (
+   <input
+   style={{ width: '100%', padding: '9px 14px', borderRadius: 10, border: '1px solid #e2e8f0', fontSize: 12, outline: 'none', fontFamily: 'inherit', boxSizing: 'border-box', color: '#64748b' }}
+   placeholder="Subject (optional, e.g. Your appointment on Friday)"
+   value={replySubject}
+   onChange={e => setReplySubject(e.target.value)} />
+ )}
+ <div style={{ display: 'flex', gap: 10 }}>
  <input
  style={{ flex: 1, padding: '11px 14px', borderRadius: 12, border: '1px solid #e2e8f0', fontSize: 13, outline: 'none', fontFamily: 'inherit' }}
  placeholder="Type a reply..." value={reply}
@@ -617,6 +627,7 @@ function InboxView({ country }) {
  style={{ padding: '11px 20px', borderRadius: 12, border: 'none', background: '#0f172a', color: '#fff', fontWeight: 800, cursor: 'pointer', fontSize: 13 }}>
  Send
  </button>
+ </div>
  </div>
  </>
  </div>
