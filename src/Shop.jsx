@@ -241,9 +241,8 @@ function ShopTab({ cartItems, onAddToCart, onUpdateQty, onClearCart }) {
         {loading ? <p style={{ color: '#94a3b8', fontSize: 13 }}>Loading products…</p> : (
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: 12 }}>
             {filtered.map(p => (
-              <ProductCard key={p.id} product={p} qty={cartMap[p.id] || 0}
-                onAdd={() => onAddToCart(p.id, 1, p.name)}
-                onRemove={() => onUpdateQty(p.id, (cartMap[p.id] || 1) - 1)} />
+              <ProductCard key={p.id} product={p}
+                onAdd={() => onAddToCart(p.id, 1, p.name)} />
             ))}
           </div>
         )}
@@ -307,45 +306,18 @@ function ShopTab({ cartItems, onAddToCart, onUpdateQty, onClearCart }) {
 
 // ── Product Card ──────────────────────────────────────────────────────────────
 
-function ProductCard({ product: p, qty, onAdd, onRemove }) {
-  const pct = p.max_stock > 0 ? (p.stock_level / p.max_stock) * 100 : 0
+function ProductCard({ product: p, onAdd }) {
   return (
-    <div style={{ ...card, padding: 14, display: 'flex', flexDirection: 'column', gap: 8 }}>
+    <div style={{ ...card, padding: 14, display: 'flex', flexDirection: 'column', gap: 10, alignItems: 'center', textAlign: 'center' }}>
       {p.image_base64
-        ? <img src={p.image_base64} alt={p.name} style={{ width: 56, height: 56, objectFit: 'cover', borderRadius: 8, display: 'block', margin: '0 auto' }} />
-        : <div style={{ fontSize: 28, textAlign: 'center' }}>{p.emoji || '📦'}</div>
+        ? <img src={p.image_base64} alt={p.name} style={{ width: 64, height: 64, objectFit: 'cover', borderRadius: 8 }} />
+        : <div style={{ fontSize: 32 }}>{p.emoji || '📦'}</div>
       }
-      <div>
-        <div style={{ fontSize: 13, fontWeight: 700, color: '#0f172a', lineHeight: 1.3 }}>{p.name}</div>
-        {p.variant && <div style={{ fontSize: 11, color: '#94a3b8' }}>{p.variant}</div>}
-        {p.supplier_name && (
-          <span style={{ display: 'inline-block', marginTop: 4, background: supplierColor(p.supplier_name), borderRadius: 4, padding: '2px 6px', fontSize: 10, fontWeight: 700, color: '#334155' }}>{p.supplier_name}</span>
-        )}
-      </div>
-      <StockBar pct={pct} level={p.stock_level} />
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 2 }}>
+      <div style={{ fontSize: 13, fontWeight: 700, color: '#0f172a', lineHeight: 1.3, flex: 1 }}>{p.name}</div>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
         <span style={{ fontSize: 13, fontWeight: 800, color: BRAND }}>£{parseFloat(p.price || 0).toFixed(2)}</span>
-        {qty === 0
-          ? <button onClick={onAdd} style={{ padding: '5px 12px', borderRadius: 7, border: 'none', background: '#0f172a', color: '#fff', fontWeight: 700, fontSize: 12, cursor: 'pointer', fontFamily: 'inherit' }}>Add</button>
-          : <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-              <button onClick={onRemove} style={{ width: 26, height: 26, borderRadius: 6, border: '1px solid #e2e8f0', background: '#fff', cursor: 'pointer', fontSize: 15 }}>−</button>
-              <span style={{ fontSize: 13, fontWeight: 800, minWidth: 18, textAlign: 'center' }}>{qty}</span>
-              <button onClick={onAdd} style={{ width: 26, height: 26, borderRadius: 6, border: 'none', background: '#0f172a', color: '#fff', cursor: 'pointer', fontSize: 15 }}>+</button>
-            </div>
-        }
+        <button onClick={onAdd} style={{ padding: '5px 14px', borderRadius: 7, border: 'none', background: '#0f172a', color: '#fff', fontWeight: 700, fontSize: 12, cursor: 'pointer', fontFamily: 'inherit' }}>Add</button>
       </div>
-    </div>
-  )
-}
-
-function StockBar({ pct, level }) {
-  const color = pct >= 50 ? '#22c55e' : pct >= 25 ? '#f59e0b' : '#ef4444'
-  return (
-    <div>
-      <div style={{ height: 4, background: '#f1f5f9', borderRadius: 4, overflow: 'hidden' }}>
-        <div style={{ height: '100%', width: `${Math.min(100, pct)}%`, background: color, borderRadius: 4, transition: 'width .3s' }} />
-      </div>
-      <span style={{ fontSize: 10, color: '#94a3b8', fontWeight: 600 }}>{level} in stock</span>
     </div>
   )
 }
@@ -463,7 +435,7 @@ function CartTab({ cartItems, onUpdateQty, onRemove, onClearCart, onOrderPlaced,
 
 // ── Inventory Tab ─────────────────────────────────────────────────────────────
 
-const emptyInvForm = () => ({ product_id: '', stock_level: 0, max_stock: 100, auto_reorder: false, reorder_threshold: 10, reorder_qty: 5 })
+const emptyInvForm = () => ({ product_id: '', stock_level: 0, auto_reorder: false, reorder_qty: 5 })
 
 function InventoryTab({ onAddToCart }) {
   const [rows,       setRows]       = useState([])
@@ -493,8 +465,8 @@ function InventoryTab({ onAddToCart }) {
     setFormSaving(true)
     try {
       await axios.patch(`${API}/api/shop/inventory/${invForm.product_id}`, {
-        stock_level: invForm.stock_level, max_stock: invForm.max_stock,
-        auto_reorder: invForm.auto_reorder, reorder_threshold: invForm.reorder_threshold, reorder_qty: invForm.reorder_qty,
+        stock_level: invForm.stock_level,
+        auto_reorder: invForm.auto_reorder, reorder_qty: invForm.reorder_qty,
       })
       setAdding(false); setInvForm(emptyInvForm()); load()
     } catch (err) {
@@ -511,9 +483,8 @@ function InventoryTab({ onAddToCart }) {
 
   async function updateField(row, field, value) {
     const updated = {
-      auto_reorder:      field === 'auto_reorder'      ? value : (row.auto_reorder      ?? false),
-      reorder_threshold: field === 'reorder_threshold' ? value : (row.reorder_threshold ?? 10),
-      reorder_qty:       field === 'reorder_qty'       ? value : (row.reorder_qty       ?? 5),
+      auto_reorder: field === 'auto_reorder' ? value : (row.auto_reorder ?? false),
+      reorder_qty:  field === 'reorder_qty'  ? value : (row.reorder_qty  ?? 5),
     }
     setRows(rs => rs.map(r => r.product_id === row.product_id ? { ...r, ...updated } : r))
     await patchRow(row.product_id, updated)
@@ -541,10 +512,8 @@ function InventoryTab({ onAddToCart }) {
                   {products.map(p => <option key={p.id} value={p.id}>{p.name}{p.variant ? ` (${p.variant})` : ''}</option>)}
                 </select>
               )},
-              { label: 'Stock level',  content: <input type="number" min={0} value={invForm.stock_level}       onChange={e => setF('stock_level',       parseInt(e.target.value) || 0)} style={numInp} /> },
-              { label: 'Max stock',    content: <input type="number" min={1} value={invForm.max_stock}         onChange={e => setF('max_stock',         parseInt(e.target.value) || 1)} style={numInp} /> },
-              { label: 'Threshold',    content: <input type="number" min={0} value={invForm.reorder_threshold} onChange={e => setF('reorder_threshold', parseInt(e.target.value) || 0)} style={numInp} /> },
-              { label: 'Reorder qty',  content: <input type="number" min={1} value={invForm.reorder_qty}       onChange={e => setF('reorder_qty',       parseInt(e.target.value) || 1)} style={numInp} /> },
+              { label: 'Stock level', content: <input type="number" min={0} value={invForm.stock_level} onChange={e => setF('stock_level', parseInt(e.target.value) || 0)} style={numInp} /> },
+              { label: 'Reorder qty', content: <input type="number" min={1} value={invForm.reorder_qty}  onChange={e => setF('reorder_qty',  parseInt(e.target.value) || 1)} style={numInp} /> },
             ].map(({ label, content }) => (
               <div key={label}>
                 <div style={{ fontSize: 11, fontWeight: 700, color: '#64748b', marginBottom: 4, textTransform: 'uppercase', letterSpacing: 0.6 }}>{label}</div>
@@ -570,7 +539,7 @@ function InventoryTab({ onAddToCart }) {
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
           <thead>
             <tr style={{ background: '#f8fafc' }}>
-              {['Product', 'Stock', 'Max', 'Auto-Reorder', 'Threshold', 'Reorder Qty', ''].map(h => (
+              {['Product', 'SKU', 'Stock', 'Auto-Reorder', 'Reorder qty', ''].map(h => (
                 <th key={h} style={{ padding: '10px 16px', textAlign: 'left', fontWeight: 800, color: '#64748b', fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.6, borderBottom: '1px solid #e2e8f0' }}>{h}</th>
               ))}
             </tr>
@@ -578,7 +547,6 @@ function InventoryTab({ onAddToCart }) {
           <tbody>
             {rows.map(row => {
               const p = row.shop_products || {}
-              const pct = row.max_stock > 0 ? (row.stock_level / row.max_stock) * 100 : 0
               return (
                 <tr key={row.product_id} style={{ borderBottom: '1px solid #f1f5f9' }}>
                   <td style={{ padding: '12px 16px' }}>
@@ -593,23 +561,13 @@ function InventoryTab({ onAddToCart }) {
                       </div>
                     </div>
                   </td>
-                  <td style={{ padding: '12px 16px' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                      <span style={{ fontWeight: 700, color: pct < 25 ? '#ef4444' : pct < 50 ? '#f59e0b' : '#22c55e' }}>{row.stock_level}</span>
-                      <div style={{ width: 60, height: 4, background: '#f1f5f9', borderRadius: 4, overflow: 'hidden' }}>
-                        <div style={{ height: '100%', width: `${Math.min(100, pct)}%`, background: pct < 25 ? '#ef4444' : pct < 50 ? '#f59e0b' : '#22c55e', borderRadius: 4 }} />
-                      </div>
-                    </div>
-                  </td>
-                  <td style={{ padding: '12px 16px', color: '#64748b' }}>{row.max_stock ?? 100}</td>
+                  <td style={{ padding: '12px 16px', color: '#64748b', fontFamily: 'monospace', fontSize: 12 }}>{p.sku || '—'}</td>
+                  <td style={{ padding: '12px 16px', fontWeight: 700, color: '#0f172a' }}>{row.stock_level}</td>
                   <td style={{ padding: '12px 16px' }}>
                     <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>
                       <input type="checkbox" checked={row.auto_reorder ?? false} onChange={e => updateField(row, 'auto_reorder', e.target.checked)} style={{ accentColor: '#0f172a', width: 16, height: 16 }} />
                       <span style={{ fontSize: 12, color: '#64748b' }}>{row.auto_reorder ? 'On' : 'Off'}</span>
                     </label>
-                  </td>
-                  <td style={{ padding: '12px 16px' }}>
-                    <input type="number" min={0} value={row.reorder_threshold ?? 10} onChange={e => updateField(row, 'reorder_threshold', parseInt(e.target.value) || 0)} style={numInp} />
                   </td>
                   <td style={{ padding: '12px 16px' }}>
                     <input type="number" min={1} value={row.reorder_qty ?? 5} onChange={e => updateField(row, 'reorder_qty', parseInt(e.target.value) || 1)} style={numInp} />
@@ -673,11 +631,28 @@ function OrdersTab({ isAdmin }) {
     }
   }
 
+  async function cleanupGhosts() {
+    try {
+      const r = await axios.post(`${API}/api/shop/admin/orders/cleanup-ghosts`)
+      alert(`Done — ${r.data.deleted} ghost order${r.data.deleted !== 1 ? 's' : ''} deleted.`)
+      loadOrders()
+    } catch (err) {
+      alert(err.response?.data?.error || 'Cleanup failed.')
+    }
+  }
+
   if (loading) return <p style={{ color: '#94a3b8', fontSize: 13 }}>Loading orders…</p>
   if (!orders.length) return <p style={{ color: '#94a3b8', fontSize: 13 }}>No orders yet.</p>
 
   return (
     <>
+      {isAdmin && (
+        <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 12 }}>
+          <button onClick={cleanupGhosts} style={{ ...btnCancel, padding: '7px 14px', fontSize: 12, color: '#ef4444', borderColor: '#fca5a5' }}>
+            Clean up ghost orders
+          </button>
+        </div>
+      )}
       <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
         {orders.map(order => (
           <div key={order.id} style={{ ...card }}>
