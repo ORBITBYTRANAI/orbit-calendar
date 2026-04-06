@@ -62,6 +62,23 @@ function Modal({ title, onClose, children, width }) {
  )
 }
 
+// Reusable confirm/destructive modal
+function ConfirmModal({ title, message, confirmLabel = 'Confirm', cancelLabel = 'Cancel', destructive = false, onConfirm, onCancel, children }) {
+ return (
+   <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.45)', display:'flex', alignItems:'center', justifyContent:'center', zIndex:10000, padding:16 }}>
+     <div style={{ background:'#fff', borderRadius:18, padding:28, width:440, maxWidth:'100%', maxHeight:'90vh', overflowY:'auto', boxShadow:'0 20px 60px rgba(0,0,0,0.25)' }}>
+       <h2 style={{ fontSize:18, fontWeight:900, color:'#0f172a', marginBottom:8 }}>{title}</h2>
+       <p style={{ fontSize:14, color:'#64748b', lineHeight:1.6, marginBottom:children ? 16 : 24 }}>{message}</p>
+       {children}
+       <div style={{ display:'flex', gap:10, marginTop:24 }}>
+         <button onClick={onCancel} style={{ ...btnGhost, flex:1 }}>{cancelLabel}</button>
+         <button onClick={onConfirm} style={{ ...btnPrimary, flex:1, background: destructive ? '#ef4444' : '#0f172a' }}>{confirmLabel}</button>
+       </div>
+     </div>
+   </div>
+ )
+}
+
 // Flag Icon
 function FlagIcon({ active, size=14 }) {
  return (
@@ -1106,6 +1123,12 @@ function MainApp({ salon, onLogout }) {
  const [phoneMatches, setPhoneMatches] = useState([])
  const [clientNotes, setClientNotes] = useState('')
  const [clientDifficult, setClientDifficult] = useState(false)
+ const [blocks, setBlocks] = useState([])
+ const [blockMode, setBlockMode] = useState(false)
+ const [blockToast, setBlockToast] = useState(null) // { id, message }
+ const [confirmModal, setConfirmModal] = useState(null) // { title, message, confirmLabel, cancelLabel, destructive, onConfirm, extras }
+ const [cancelReason, setCancelReason] = useState('Customer requested')
+ const [cancelOther, setCancelOther] = useState('')
 
  const emptyForm = { full_name:'', phone:'', email:'', technician_id:'', service_ids:[], start_time:'', notes:'' }
  const [form, setForm] = useState(emptyForm)
@@ -1114,13 +1137,15 @@ function MainApp({ salon, onLogout }) {
 
  async function loadAll() {
  try {
- const [b, t, s] = await Promise.all([
+ const [b, t, s, bl] = await Promise.all([
  axios.get(API + '/api/bookings'),
  axios.get(API + '/api/technicians'),
  axios.get(API + '/api/services'),
+ axios.get(API + '/api/blocks').catch(() => ({ data: [] })),
  ])
  setBookings(b.data)
  setTechnicians(t.data)
+ setBlocks(bl.data)
  // Deduplicate services by name
  const seen = new Set()
  setServices(s.data.filter(svc => { if (seen.has(svc.name)) return false; seen.add(svc.name); return true }))
@@ -1181,35 +1206,48 @@ function MainApp({ salon, onLogout }) {
    return (idx + 1) % 7
  }), [openingHours])
 
- const events = useMemo(() => bookings.map(b => {
- const isCompleted = b.status === 'completed'
- const isVisualiser = b.source === 'visualiser'
- let color
- if (isCompleted) color = '#D1D5DB'
- else if (isVisualiser) color = '#1e3a8a'
- else if (b.services?.category === 'Service Add On' && Array.isArray(b.service_ids) && b.service_ids.length > 1) {
-   const primary = b.service_ids.map(id => services.find(s => s.id === id)).find(s => s && s.category !== 'Service Add On')
-   color = primary ? (primary.color || CATEGORY_COLOR[primary.category] || '#94a3b8') : CATEGORY_COLOR['Service Add On'] || '#fde68a'
- } else {
-   color = b.services?.color || CATEGORY_COLOR[b.services?.category] || '#94a3b8'
- }
-
- let title = (b.customers?.full_name || 'Guest') + ' · ' + (b.services?.name || '')
- if (isVisualiser && b.ai_prediction) title = (b.customers?.full_name || 'Guest') + ' · ' + b.ai_prediction
-
- return {
- id: b.id,
- resourceId: b.technician_id,
- title,
- start: b.start_time,
- end: b.end_time,
- backgroundColor: color,
- borderColor: color,
- textColor: isVisualiser ? '#fff' : '#1e293b',
- editable: !isCompleted,
- extendedProps: b,
- }
- }), [bookings, services])
+ const events = useMemo(() => {
+ const bookingEvents = bookings.map(b => {
+   const isCompleted = b.status === 'completed'
+   const isVisualiser = b.source === 'visualiser'
+   let color
+   if (isCompleted) color = '#D1D5DB'
+   else if (isVisualiser) color = '#1e3a8a'
+   else if (b.services?.category === 'Service Add On' && Array.isArray(b.service_ids) && b.service_ids.length > 1) {
+     const primary = b.service_ids.map(id => services.find(s => s.id === id)).find(s => s && s.category !== 'Service Add On')
+     color = primary ? (primary.color || CATEGORY_COLOR[primary.category] || '#94a3b8') : CATEGORY_COLOR['Service Add On'] || '#fde68a'
+   } else {
+     color = b.services?.color || CATEGORY_COLOR[b.services?.category] || '#94a3b8'
+   }
+   let title = (b.customers?.full_name || 'Guest') + ' · ' + (b.services?.name || '')
+   if (isVisualiser && b.ai_prediction) title = (b.customers?.full_name || 'Guest') + ' · ' + b.ai_prediction
+   return {
+     id: b.id,
+     resourceId: b.technician_id,
+     title,
+     start: b.start_time,
+     end: b.end_time,
+     backgroundColor: color,
+     borderColor: color,
+     textColor: isVisualiser ? '#fff' : '#1e293b',
+     editable: !isCompleted,
+     extendedProps: b,
+   }
+ })
+ const blockEvents = blocks.map(bl => ({
+   id: 'block_' + bl.id,
+   resourceId: bl.technician_id,
+   title: bl.reason || 'Blocked',
+   start: bl.start_time,
+   end: bl.end_time,
+   backgroundColor: 'transparent',
+   borderColor: '#94a3b8',
+   textColor: '#64748b',
+   editable: false,
+   extendedProps: { isBlock: true, blockId: bl.id, reason: bl.reason, start_time: bl.start_time, end_time: bl.end_time },
+ }))
+ return [...bookingEvents, ...blockEvents]
+}, [bookings, blocks, services])
 
  // Opening hours → slot range (slotMax extends 1 hr past closing for staff overflow)
  const { slotMin, slotMax } = useMemo(() => {
@@ -1239,6 +1277,13 @@ function MainApp({ salon, onLogout }) {
 .fc .fc-daygrid-day-number { font-weight: 700; }
 .fc .fc-daygrid-day-events { display: none !important; }
 .fc .fc-daygrid-day-top { flex-direction: row; }
+.fc .fc-timegrid-slot-lane { transition: background 120ms ease; cursor: pointer; }
+.fc .fc-timegrid-slot-lane:hover { background: rgba(15,23,42,0.05) !important; }
+.fc .fc-highlight { background: rgba(15,23,42,0.12) !important; outline: 2px solid #0f172a; outline-offset: -1px; border-radius: 3px; }
+.fc .fc-timegrid-now-indicator-line { border-color: #ef4444 !important; border-width: 2px !important; position: relative; }
+.fc .fc-timegrid-now-indicator-line::before { content: ''; position: absolute; left: -4px; top: -4px; width: 8px; height: 8px; background: #ef4444; border-radius: 50%; }
+.fc .fc-timegrid-now-indicator-arrow { display: none; }
+.orbit-block-event .fc-event-main { padding: 0 !important; }
 ${closedDayNames.map(d => `.fc .fc-day[data-dow="${d}"] { background: #f1f5f9 !important; opacity: 0.6; }`).join('\n')}
 `, [closedDayNames])
 
@@ -1255,14 +1300,36 @@ ${closedDayNames.map(d => `.fc .fc-day[data-dow="${d}"] { background: #f1f5f9 !i
  const openCreate = useCallback((info) => {
  const api = calRef.current?.getApi()
  if (api?.view.type === 'dayGridMonth') return
+ if (blockMode) {
+   const techId = info.resource?.id
+   if (!techId) return
+   createBlock(info.startStr, info.endStr, techId)
+   return
+ }
  setEditingId(null)
  setSvcSearch('')
  setForm({ ...emptyForm, technician_id: info.resource?.id || '', start_time: info.startStr?.slice(0,16) || '' })
  setShowBooking(true)
- }, [emptyForm])
+ }, [blockMode, emptyForm])
 
  async function openEdit(info) {
  const b = info.event.extendedProps
+ if (b.isBlock) {
+   const blockId = b.blockId
+   setConfirmModal({
+     title: 'Remove block?',
+     message: `Remove the blocked time${b.reason ? ` (${b.reason})` : ''}? Bookings can be made in this slot again.`,
+     confirmLabel: 'Remove block',
+     cancelLabel: 'Keep',
+     destructive: true,
+     onConfirm: async () => {
+       setConfirmModal(null)
+       await axios.delete(API + '/api/blocks/' + blockId)
+       setBlocks(prev => prev.filter(bl => bl.id !== blockId))
+     },
+   })
+   return
+ }
  const status = b.status || info.event.extendedProps?.status
  if (status === 'completed') {
  // Fetch receipt data BEFORE opening modal so it renders in receipt view immediately
@@ -1432,18 +1499,58 @@ await axios.put(API + '/api/bookings/' + editingId, {
  }
  }
 
- async function handleCancel() {
- if (!window.confirm('Cancel this appointment?')) return
- setBookings(prev => prev.filter(b => b.id !== editingId))
- setShowBooking(false)
- await axios.delete(API + '/api/bookings/' + editingId)
+ function handleCancel() {
+ setCancelReason('Customer requested')
+ setCancelOther('')
+ setConfirmModal({
+   title: 'Cancel appointment?',
+   message: 'This will remove the appointment from the calendar. The customer will not be notified automatically.',
+   confirmLabel: 'Cancel appointment',
+   cancelLabel: 'Keep appointment',
+   destructive: true,
+   type: 'cancel',
+ })
  }
 
- async function handleNoShow() {
- if (!window.confirm('Mark this appointment as no show?')) return
- setBookings(prev => prev.map(b => b.id !== editingId ? b : { ...b, status: 'no_show' }))
+ async function commitCancel(reason) {
+ const id = editingId
+ setConfirmModal(null)
+ setBookings(prev => prev.filter(b => b.id !== id))
  setShowBooking(false)
- await axios.put(API + '/api/bookings/' + editingId, { status: 'no_show' })
+ await axios.delete(API + '/api/bookings/' + id, { data: { cancelled_reason: reason } })
+ }
+
+ function handleNoShow() {
+ setConfirmModal({
+   title: 'Mark as no-show?',
+   message: 'This will mark the appointment as a no-show.',
+   confirmLabel: 'Mark no-show',
+   cancelLabel: 'Cancel',
+   destructive: false,
+   onConfirm: async () => {
+     const id = editingId
+     setConfirmModal(null)
+     setBookings(prev => prev.map(b => b.id !== id ? b : { ...b, status: 'no_show' }))
+     setShowBooking(false)
+     await axios.put(API + '/api/bookings/' + id, { status: 'no_show' })
+   },
+ })
+ }
+
+ async function createBlock(startStr, endStr, technicianId) {
+ try {
+   const { data } = await axios.post(API + '/api/blocks', {
+     technician_id: technicianId,
+     start_time: startStr,
+     end_time: endStr,
+   })
+   setBlocks(prev => [...prev, data])
+   const toastId = data.id
+   setBlockToast({ id: toastId, message: 'Block added' })
+   setTimeout(() => setBlockToast(t => t?.id === toastId ? null : t), 5000)
+ } catch (err) {
+   alert(err.response?.data?.error || 'Could not create block.')
+ }
  }
 
  const handleDrop = useCallback(async (info) => {
@@ -1468,13 +1575,22 @@ await axios.put(API + '/api/bookings/' + editingId, {
  setNewTechName('')
  } catch (err) { alert(err.response?.data?.error || 'Could not add.') }
  }
- async function removeTechnician(id) {
- if (!window.confirm('Remove this technician? Their bookings will also be removed.')) return
- try {
- await axios.delete(API + '/api/technicians/' + id)
- setTechnicians(prev => prev.filter(t => t.id !== id))
- setBookings(prev => prev.filter(b => b.technician_id !== id))
- } catch (err) { alert(err.response?.data?.error || 'Could not remove.') }
+ function removeTechnician(id) {
+ setConfirmModal({
+   title: 'Remove technician?',
+   message: 'Their bookings will also be removed. This cannot be undone.',
+   confirmLabel: 'Remove',
+   cancelLabel: 'Cancel',
+   destructive: true,
+   onConfirm: async () => {
+     setConfirmModal(null)
+     try {
+       await axios.delete(API + '/api/technicians/' + id)
+       setTechnicians(prev => prev.filter(t => t.id !== id))
+       setBookings(prev => prev.filter(b => b.technician_id !== id))
+     } catch (err) { alert(err.response?.data?.error || 'Could not remove.') }
+   },
+ })
  }
 
  // Service CRUD 
@@ -1487,12 +1603,21 @@ await axios.put(API + '/api/bookings/' + editingId, {
  setNewSvc({ name:'', duration_minutes:60, price:'', category:'Nail Enhancements' })
  } catch (err) { alert(err.response?.data?.error || 'Could not add.') }
  }
- async function removeService(id) {
- if (!window.confirm('Remove this service?')) return
- try {
- await axios.delete(API + '/api/services/' + id)
- setServices(prev => prev.filter(s => s.id !== id))
- } catch (err) { alert(err.response?.data?.error || 'Could not remove.') }
+ function removeService(id) {
+ setConfirmModal({
+   title: 'Remove service?',
+   message: 'This service will be removed from the menu.',
+   confirmLabel: 'Remove',
+   cancelLabel: 'Cancel',
+   destructive: true,
+   onConfirm: async () => {
+     setConfirmModal(null)
+     try {
+       await axios.delete(API + '/api/services/' + id)
+       setServices(prev => prev.filter(s => s.id !== id))
+     } catch (err) { alert(err.response?.data?.error || 'Could not remove.') }
+   },
+ })
  }
 
  // Capabilities 
@@ -1619,6 +1744,13 @@ await axios.put(API + '/api/bookings/' + editingId, {
  {view === 'calendar' && (
  <div style={{ flex:1, overflow:'auto', padding:24 }}>
  <style>{calendarCss}</style>
+ <div style={{ display:'flex', justifyContent:'flex-end', marginBottom:10 }}>
+   <button
+     onClick={() => setBlockMode(m => !m)}
+     style={{ padding:'7px 14px', borderRadius:8, border:'none', background: blockMode ? '#ef4444' : '#64748b', color:'#fff', fontWeight:700, fontSize:12, cursor:'pointer' }}>
+     {blockMode ? '✕ Exit Block Mode' : '⬛ Block Time'}
+   </button>
+ </div>
  <FullCalendar
  ref={calRef}
  plugins={[resourceTimeGridPlugin, dayGridPlugin, interactionPlugin]}
@@ -1638,9 +1770,22 @@ await axios.put(API + '/api/bookings/' + editingId, {
  snapDuration="00:05:00"
  allDaySlot={false}
  height="auto"
+ nowIndicator={true}
+ timeZone={salon?.timezone || 'local'}
  headerToolbar={{ left:'prev,next today', center:'title', right:'resourceTimeGridDay,dayGridMonth' }}
  eventContent={(info) => {
    const bk = info.event.extendedProps
+   if (bk.isBlock) {
+     const start = bk.start_time ? fmtTime(bk.start_time, salon?.timezone, { hour:'2-digit', minute:'2-digit' }) : ''
+     const end   = bk.end_time   ? fmtTime(bk.end_time,   salon?.timezone, { hour:'2-digit', minute:'2-digit' }) : ''
+     return (
+       <div style={{ height:'100%', background:'repeating-linear-gradient(45deg, rgba(100,116,139,0.18) 0px, rgba(100,116,139,0.18) 4px, transparent 4px, transparent 12px)', border:'1px solid #94a3b8', borderRadius:4, padding:'3px 6px', display:'flex', flexDirection:'column', justifyContent:'flex-start', overflow:'hidden' }}>
+         <span style={{ fontSize:'0.8em', fontWeight:700, color:'#475569', whiteSpace:'nowrap' }}>Blocked</span>
+         {(start && end) && <span style={{ fontSize:'0.72em', color:'#64748b', whiteSpace:'nowrap' }}>{start}–{end}</span>}
+         {bk.reason && <span style={{ fontSize:'0.72em', color:'#94a3b8', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{bk.reason}</span>}
+       </div>
+     )
+   }
    const startTime = bk.start_time ? bk.start_time.split('+')[0].split('T')[1]?.slice(0, 5) : ''
    const endTime   = bk.end_time   ? bk.end_time.split('+')[0].split('T')[1]?.slice(0, 5)   : ''
    const name = bk.customers?.full_name || 'Guest'
@@ -1697,16 +1842,19 @@ await axios.put(API + '/api/bookings/' + editingId, {
    const techId = info.resource.id
    const noteKey = `${techId}_${calDate}`
    return (
-     <div style={{ display:'flex', flexDirection:'column', gap:3, padding:'2px 4px' }}>
-       <span style={{ fontWeight:800 }}>{info.resource.title}</span>
-       <input
-         key={techNotes[noteKey] !== undefined ? noteKey : 'pending_' + noteKey}
-         style={{ fontSize:10, color:'#64748b', border:'none', borderBottom:'1px dashed #e2e8f0', background:'transparent', outline:'none', width:'100%', fontFamily:'inherit', padding:'1px 0' }}
-         placeholder="Add a note..."
-         defaultValue={techNotes[noteKey] ?? ''}
-         onBlur={e => saveTechNote(techId, calDate, e.target.value)}
-         onClick={e => e.stopPropagation()}
-       />
+     <div style={{ display:'flex', flexDirection:'column', gap:4, padding:'4px 6px' }}>
+       <span style={{ fontWeight:800, fontSize:13 }}>{info.resource.title}</span>
+       <div>
+         <div style={{ fontSize:11, color:'#94a3b8', fontWeight:700, textTransform:'uppercase', letterSpacing:'0.5px', marginBottom:3 }}>Note</div>
+         <input
+           key={techNotes[noteKey] !== undefined ? noteKey : 'pending_' + noteKey}
+           style={{ fontSize:14, color:'#374151', border:'1px solid #e5e7eb', background:'#f9fafb', borderRadius:6, outline:'none', width:'100%', fontFamily:'inherit', padding:'8px 12px', boxSizing:'border-box', textAlign:'left' }}
+           placeholder="Add a note..."
+           defaultValue={techNotes[noteKey] ?? ''}
+           onBlur={e => saveTechNote(techId, calDate, e.target.value)}
+           onClick={e => e.stopPropagation()}
+         />
+       </div>
      </div>
    )
  }}
@@ -1986,6 +2134,48 @@ return (
  })}
  </div>
  </Modal>
+ )}
+
+ {/* Block toast */}
+ {blockToast && (
+   <div style={{ position:'fixed', bottom:24, right:24, zIndex:10000, background:'#1e293b', color:'#fff', borderRadius:12, padding:'14px 20px', display:'flex', alignItems:'center', gap:16, boxShadow:'0 8px 24px rgba(0,0,0,0.3)', fontSize:14, fontWeight:700 }}>
+     <span>{blockToast.message}</span>
+     <button onClick={async () => {
+       const id = blockToast.id
+       setBlockToast(null)
+       await axios.delete(API + '/api/blocks/' + id)
+       setBlocks(prev => prev.filter(b => b.id !== id))
+     }} style={{ background:'none', border:'none', color:'#94a3b8', cursor:'pointer', fontWeight:700, fontSize:13, padding:0 }}>Undo</button>
+   </div>
+ )}
+
+ {/* Confirm/destructive modal */}
+ {confirmModal && (
+   <ConfirmModal
+     title={confirmModal.title}
+     message={confirmModal.message}
+     confirmLabel={confirmModal.confirmLabel}
+     cancelLabel={confirmModal.cancelLabel}
+     destructive={confirmModal.destructive}
+     onCancel={() => setConfirmModal(null)}
+     onConfirm={confirmModal.type === 'cancel'
+       ? () => commitCancel(cancelReason === 'Other' ? (cancelOther || 'Other') : cancelReason)
+       : confirmModal.onConfirm}
+   >
+     {confirmModal.type === 'cancel' && (
+       <div>
+         <label style={{ ...lbl, marginTop:0 }}>Reason</label>
+         <select style={inp} value={cancelReason} onChange={e => setCancelReason(e.target.value)}>
+           {['Customer requested','No-show','Staff unavailable','Other'].map(r => <option key={r}>{r}</option>)}
+         </select>
+         {cancelReason === 'Other' && (
+           <textarea style={{ ...inp, height:60, resize:'vertical', marginTop:8 }}
+             value={cancelOther} onChange={e => setCancelOther(e.target.value)}
+             placeholder="Describe reason…" />
+         )}
+       </div>
+     )}
+   </ConfirmModal>
  )}
 
  {/* Month view bubble dropdown portal — renders on document.body so it never affects calendar cell layout */}
