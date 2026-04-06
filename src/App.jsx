@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import './mobile.css'
 import { createPortal } from 'react-dom'
 import Analytics from './Analytics'
 import ShopView from './Shop'
@@ -47,26 +48,41 @@ const btnDanger = { padding:'11px 20px', borderRadius:10, border:'none', backgro
 const btnGreen  = { padding:'11px 20px', borderRadius:10, border:'none', background:'#059669', color:'#fff', fontWeight:800, cursor:'pointer', fontSize:13 }
 const btnAmber  = { padding:'11px 20px', borderRadius:10, border:'none', background:'#f59e0b', color:'#fff', fontWeight:800, cursor:'pointer', fontSize:13 }
 
-// Modal wrapper 
+// ── Mobile breakpoint hook ────────────────────────────────────────────────────
+function useIsMobile() {
+  const [isMobile, setIsMobile] = useState(() => typeof window !== 'undefined' && window.innerWidth < 768)
+  useEffect(() => {
+    const handler = () => setIsMobile(window.innerWidth < 768)
+    window.addEventListener('resize', handler)
+    return () => window.removeEventListener('resize', handler)
+  }, [])
+  return isMobile
+}
+
+// Modal wrapper
 function Modal({ title, onClose, children, width }) {
- return (
- <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.45)', display:'flex', alignItems:'center', justifyContent:'center', zIndex:9999, padding:16 }}>
- <div style={{ background:'#fff', borderRadius:18, padding:28, width:width||460, maxHeight:'90vh', overflowY:'auto', boxShadow:'0 20px 60px rgba(0,0,0,0.25)' }}>
- <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:4 }}>
- <h2 style={{ fontSize:18, fontWeight:900, color:'#0f172a' }}>{title}</h2>
- <button onClick={onClose} style={{ background:'none', border:'none', fontSize:22, cursor:'pointer', color:'#94a3b8', lineHeight:1 }}>×</button>
- </div>
- {children}
- </div>
- </div>
- )
+  const isMobile = useIsMobile()
+  return (
+    <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.45)', display:'flex', alignItems: isMobile ? 'flex-start' : 'center', justifyContent:'center', zIndex:9999, padding: isMobile ? 0 : 16 }}>
+      <div className={isMobile ? 'orbit-modal-box' : ''} style={{ background:'#fff', borderRadius: isMobile ? 0 : 18, padding:0, width: isMobile ? '100%' : (width||460), maxHeight: isMobile ? '100dvh' : '90vh', height: isMobile ? '100dvh' : undefined, overflowY:'auto', boxShadow: isMobile ? 'none' : '0 20px 60px rgba(0,0,0,0.25)', display:'flex', flexDirection:'column' }}>
+        <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', padding: isMobile ? '16px 20px 14px' : '28px 28px 4px', borderBottom: isMobile ? '1px solid #f1f5f9' : 'none', position: isMobile ? 'sticky' : undefined, top:0, background:'#fff', zIndex:1 }}>
+          <h2 style={{ fontSize:18, fontWeight:900, color:'#0f172a', margin:0 }}>{title}</h2>
+          <button onClick={onClose} style={{ background:'none', border:'none', fontSize:22, cursor:'pointer', color:'#94a3b8', lineHeight:1, minHeight:44, minWidth:44, display:'flex', alignItems:'center', justifyContent:'center' }}>×</button>
+        </div>
+        <div style={{ padding: isMobile ? '16px 20px 32px' : '4px 28px 28px', flex:1, overflowY:'auto' }}>
+          {children}
+        </div>
+      </div>
+    </div>
+  )
 }
 
 // Reusable confirm/destructive modal
 function ConfirmModal({ title, message, confirmLabel = 'Confirm', cancelLabel = 'Cancel', destructive = false, onConfirm, onCancel, children }) {
- return (
-   <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.45)', display:'flex', alignItems:'center', justifyContent:'center', zIndex:10000, padding:16 }}>
-     <div style={{ background:'#fff', borderRadius:18, padding:28, width:440, maxWidth:'100%', maxHeight:'90vh', overflowY:'auto', boxShadow:'0 20px 60px rgba(0,0,0,0.25)' }}>
+  const isMobile = useIsMobile()
+  return (
+   <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.45)', display:'flex', alignItems: isMobile ? 'flex-end' : 'center', justifyContent:'center', zIndex:10000, padding: isMobile ? 0 : 16 }}>
+     <div style={{ background:'#fff', borderRadius: isMobile ? '18px 18px 0 0' : 18, padding:28, width: isMobile ? '100%' : 440, maxWidth:'100%', maxHeight: isMobile ? '80dvh' : '90vh', overflowY:'auto', boxShadow:'0 20px 60px rgba(0,0,0,0.25)' }}>
        <h2 style={{ fontSize:18, fontWeight:900, color:'#0f172a', marginBottom:8 }}>{title}</h2>
        <p style={{ fontSize:14, color:'#64748b', lineHeight:1.6, marginBottom:children ? 16 : 24 }}>{message}</p>
        {children}
@@ -89,8 +105,13 @@ function FlagIcon({ active, size=14 }) {
  )
 }
 
-// Checkout Modal 
+// Checkout Modal
 function CheckoutModal({ booking, services, onClose, onComplete, receiptData, country, loyaltyDiscount, timezone }) {
+ const isMobile = useIsMobile()
+ const mobileOverlay = { position:'fixed', inset:0, background:'rgba(0,0,0,0.45)', display:'flex', alignItems: isMobile ? 'flex-start' : 'center', justifyContent:'center', zIndex:9999, padding: isMobile ? 0 : 16 }
+ const mobileBox = isMobile
+   ? { background:'#fff', width:'100%', height:'100dvh', maxHeight:'100dvh', overflowY:'auto', display:'flex', flexDirection:'column' }
+   : null
  const selectedSvcs = booking.service_ids?.length
  ? booking.service_ids.map(id => services.find(s => s.id === id)).filter(Boolean)
  : (booking.service_id ? [services.find(s => s.id === booking.service_id)].filter(Boolean) : [])
@@ -225,9 +246,9 @@ function CheckoutModal({ booking, services, onClose, onComplete, receiptData, co
  }
 
  return (
- <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.45)', display:'flex', alignItems:'center', justifyContent:'center', zIndex:9999, padding:16 }}>
- <div style={{ background:'#fff', borderRadius:18, padding:28, width:440, boxShadow:'0 20px 60px rgba(0,0,0,0.25)' }}>
- <div style={{ textAlign:'center', marginBottom:20 }}>
+ <div style={mobileOverlay}>
+ <div style={mobileBox || { background:'#fff', borderRadius:18, padding:28, width:440, boxShadow:'0 20px 60px rgba(0,0,0,0.25)' }}>
+ <div style={{ textAlign:'center', marginBottom:20, padding: isMobile ? '28px 28px 0' : 0 }}>
  <div style={{ fontSize:40, marginBottom:8 }}></div>
  <div style={{ fontSize:18, fontWeight:900, color:'#059669' }}>Payment Complete</div>
  <div style={{ fontSize:12, color:'#94a3b8', marginTop:4 }}>{receiptId}</div>
@@ -286,12 +307,13 @@ function CheckoutModal({ booking, services, onClose, onComplete, receiptData, co
  }
 
  return (
- <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.45)', display:'flex', alignItems:'center', justifyContent:'center', zIndex:9999, padding:16 }}>
- <div style={{ background:'#fff', borderRadius:18, padding:28, width:500, maxHeight:'90vh', overflowY:'auto', boxShadow:'0 20px 60px rgba(0,0,0,0.25)' }}>
- <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:16 }}>
+ <div style={mobileOverlay}>
+ <div style={mobileBox || { background:'#fff', borderRadius:18, padding:28, width:500, maxHeight:'90vh', overflowY:'auto', boxShadow:'0 20px 60px rgba(0,0,0,0.25)' }}>
+ <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:16, ...(isMobile ? { padding:'16px 20px 0', position:'sticky', top:0, background:'#fff', zIndex:1, borderBottom:'1px solid #f1f5f9', paddingBottom:12 } : {}) }}>
  <h2 style={{ fontSize:18, fontWeight:900 }}>Checkout</h2>
- <button onClick={onClose} style={{ background:'none', border:'none', fontSize:22, cursor:'pointer', color:'#94a3b8' }}>×</button>
+ <button onClick={onClose} style={{ background:'none', border:'none', fontSize:22, cursor:'pointer', color:'#94a3b8', minHeight:44, minWidth:44, display:'flex', alignItems:'center', justifyContent:'center' }}>×</button>
  </div>
+ <div style={isMobile ? { padding:'0 20px 32px' } : {}}>
  <div style={{ background:'#f8fafc', borderRadius:12, padding:16, marginBottom:20, border:'1px solid #e2e8f0' }}>
  <div style={{ fontWeight:800, fontSize:15, marginBottom:6 }}>{booking.customers?.full_name || 'Guest'}</div>
  <div style={{ fontSize:13, color:'#64748b' }}>
@@ -386,6 +408,7 @@ function CheckoutModal({ booking, services, onClose, onComplete, receiptData, co
  </button>
  <button onClick={onClose} style={btnGhost}>Cancel</button>
  </div>
+ </div>{/* end mobile padding wrapper */}
  </div>
  </div>
  )
@@ -434,6 +457,7 @@ function OpeningHoursModal({ hours, onSave, onClose }) {
 
 // Inbox View 
 function InboxView({ country }) {
+ const isMobile = useIsMobile()
  const [conversations, setConversations] = useState([])
  const [activeConv, setActiveConv] = useState(null)
  const [messages, setMessages] = useState([])
@@ -513,10 +537,15 @@ function InboxView({ country }) {
  color: active ? '#fff' : '#64748b',
  })
 
+ // On mobile: show list XOR detail; on desktop: side-by-side
+ const showList   = !isMobile || !activeConv
+ const showDetail = !!activeConv
+
  return (
  <div style={{ display: 'flex', height: '100%', overflow: 'hidden' }}>
- {/* Sidebar */}
- <div style={{ width: activeConv ? 340 : undefined, flex: activeConv ? undefined : 1, borderRight: activeConv ? '1px solid #e2e8f0' : 'none', display: 'flex', flexDirection: 'column', background: '#fff' }}>
+ {/* List panel */}
+ {showList && (
+ <div style={{ width: !isMobile && activeConv ? 340 : undefined, flex: !isMobile && activeConv ? undefined : 1, borderRight: !isMobile && activeConv ? '1px solid #e2e8f0' : 'none', display: 'flex', flexDirection: 'column', background: '#fff' }}>
  <div style={{ padding: '14px 16px', borderBottom: '1px solid #e2e8f0' }}>
  <div style={{ fontWeight: 900, fontSize: 15, marginBottom: 10 }}>Inbox</div>
 
@@ -569,12 +598,16 @@ function InboxView({ country }) {
  ))}
  </div>
  </div>
+ )}
 
  {/* Conversation pane */}
- {activeConv && (
+ {showDetail && activeConv && (
  <div style={{ flex: 1, display: 'flex', flexDirection: 'column', background: '#f8fafc' }}>
  <>
  <div style={{ padding: '12px 20px', background: '#fff', borderBottom: '1px solid #e2e8f0', display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+ {isMobile && (
+   <button onClick={() => setActiveConv(null)} style={{ background:'none', border:'none', fontSize:13, fontWeight:700, color:'#64748b', cursor:'pointer', display:'flex', alignItems:'center', gap:4, padding:'0 4px 0 0', minHeight:44 }}>← Back</button>
+ )}
  <div style={{ fontWeight: 900, fontSize: 15 }}>{activeConv.channel === 'email' && activeConv.subject ? activeConv.subject : activeConv.customer_name}</div>
  {activeConv.channel === 'email' && activeConv.customer_email
    ? <div style={{ fontSize: 12, color: '#64748b' }}>{activeConv.customer_name} &lt;{activeConv.customer_email}&gt;</div>
@@ -880,6 +913,7 @@ function ClientDetail({ client, loading, onBack }) {
 
 // Clients List View
 function ClientsView() {
+ const isMobile = useIsMobile()
  const [clients, setClients] = useState([])
  const [search, setSearch] = useState('')
  const [loading, setLoading] = useState(true)
@@ -914,63 +948,94 @@ function ClientsView() {
  }
 
  return (
- <div style={{ padding:24, flex:1, overflowY:'auto' }}>
- <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:20 }}>
+ <div style={{ padding: isMobile ? 16 : 24, flex:1, overflowY:'auto' }}>
+ <div style={{ display:'flex', flexDirection: isMobile ? 'column' : 'row', justifyContent:'space-between', alignItems: isMobile ? 'stretch' : 'center', gap: isMobile ? 10 : 0, marginBottom:20 }}>
  <h1 style={{ fontSize:20, fontWeight:900, color:'#0f172a', margin:0 }}>Clients</h1>
- <input style={{ ...inp, width:280 }} placeholder="Search name, phone or email…"
+ <input style={{ ...inp, width: isMobile ? '100%' : 280 }} placeholder="Search name, phone or email…"
  value={search} onChange={e => setSearch(e.target.value)} />
  </div>
  {loading ? (
  <div style={{ color:'#94a3b8', fontSize:14 }}>Loading…</div>
+ ) : isMobile ? (
+   /* ── Mobile: card list ── */
+   <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
+     {clients.length === 0 && (
+       <div style={{ padding:'40px 16px', textAlign:'center', color:'#94a3b8', fontSize:14 }}>
+         {search ? 'No clients found.' : 'No clients yet.'}
+       </div>
+     )}
+     {clients.map(c => (
+       <div key={c.id} onClick={() => openDetail(c)}
+         style={{ background:'#fff', borderRadius:12, border:'1px solid #e2e8f0', padding:'14px 16px', cursor:'pointer' }}>
+         <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', marginBottom:6 }}>
+           <span style={{ fontSize:15, fontWeight:800, color:'#0f172a' }}>{c.full_name}</span>
+           <div style={{ display:'flex', alignItems:'center', gap:8 }}>
+             {c.total_spend > 0 && <span style={{ fontSize:13, fontWeight:700, color:'#059669' }}>£{c.total_spend.toFixed(2)}</span>}
+             <button
+               onClick={e => { e.stopPropagation(); const v = !c.difficult_client; setClients(prev => prev.map(x => x.id === c.id ? { ...x, difficult_client: v } : x)); axios.patch(API + '/api/customers/' + c.id, { difficult_client: v }).catch(() => {}) }}
+               style={{ background:'none', border:'none', cursor:'pointer', padding:4, minHeight:44, minWidth:44, display:'flex', alignItems:'center', justifyContent:'flex-end' }}>
+               <FlagIcon active={c.difficult_client || false} size={14} />
+             </button>
+           </div>
+         </div>
+         <div style={{ fontSize:12, color:'#64748b', marginBottom:4 }}>{c.phone||'—'}</div>
+         <div style={{ display:'flex', gap:14, fontSize:12, color:'#94a3b8' }}>
+           <span><strong style={{ color:'#0f172a' }}>{c.total_visits}</strong> visits</span>
+           {c.last_visit && <span>{new Date(c.last_visit).toLocaleDateString('en-GB', { day:'numeric', month:'short', year:'numeric' })}</span>}
+         </div>
+       </div>
+     ))}
+   </div>
  ) : (
- <div style={{ background:'#fff', borderRadius:14, border:'1px solid #e2e8f0', overflow:'hidden' }}>
- <table style={{ width:'100%', borderCollapse:'collapse' }}>
- <thead>
- <tr style={{ background:'#f8fafc', borderBottom:'1px solid #e2e8f0' }}>
- {['Name','Phone','Email','Visits','Last Visit','Total Spend','Flag'].map(h => (
- <th key={h} style={{ padding:'10px 16px', textAlign:'left', fontSize:11, fontWeight:800, color:'#64748b', textTransform:'uppercase', letterSpacing:0.8 }}>{h}</th>
- ))}
- </tr>
- </thead>
- <tbody>
- {clients.map((c,i) => (
- <tr key={c.id} onClick={() => openDetail(c)}
- style={{ borderBottom: i < clients.length-1 ? '1px solid #f1f5f9' : 'none', cursor:'pointer', background:'#fff' }}
- onMouseEnter={e => e.currentTarget.style.background='#f8fafc'}
- onMouseLeave={e => e.currentTarget.style.background='#fff'}>
- <td style={{ padding:'12px 16px', fontWeight:700, fontSize:14, color:'#0f172a' }}>{c.full_name}</td>
- <td style={{ padding:'12px 16px', fontSize:13, color:'#475569' }}>{c.phone||'—'}</td>
- <td style={{ padding:'12px 16px', fontSize:13, color:'#475569' }}>{c.email||'—'}</td>
- <td style={{ padding:'12px 16px', fontSize:13, fontWeight:700, color:'#0f172a' }}>{c.total_visits}</td>
- <td style={{ padding:'12px 16px', fontSize:13, color:'#475569' }}>
- {c.last_visit ? new Date(c.last_visit).toLocaleDateString('en-GB', { day:'numeric', month:'short', year:'numeric' }) : '—'}
- </td>
- <td style={{ padding:'12px 16px', fontSize:13, fontWeight:700, color:'#059669' }}>
- {c.total_spend > 0 ? `£${c.total_spend.toFixed(2)}` : '—'}
- </td>
- <td style={{ padding:'12px 16px' }} onClick={e => e.stopPropagation()}>
- <button
-   title={c.difficult_client ? 'Remove difficult flag' : 'Flag as difficult client'}
-   onClick={async () => {
-     const newVal = !c.difficult_client
-     setClients(prev => prev.map(x => x.id === c.id ? { ...x, difficult_client: newVal } : x))
-     await axios.patch(API + '/api/customers/' + c.id, { difficult_client: newVal }).catch(() => {})
-   }}
-   style={{ background:'none', border:'none', cursor:'pointer', padding:4, display:'flex', alignItems:'center' }}
- >
-   <FlagIcon active={c.difficult_client || false} size={14} />
- </button>
- </td>
- </tr>
- ))}
- {clients.length === 0 && (
- <tr><td colSpan={6} style={{ padding:'40px 16px', textAlign:'center', color:'#94a3b8', fontSize:14 }}>
- {search ? 'No clients found matching your search.' : 'No clients yet.'}
- </td></tr>
- )}
- </tbody>
- </table>
- </div>
+   /* ── Desktop: table ── */
+   <div style={{ background:'#fff', borderRadius:14, border:'1px solid #e2e8f0', overflow:'hidden' }}>
+   <table style={{ width:'100%', borderCollapse:'collapse' }}>
+   <thead>
+   <tr style={{ background:'#f8fafc', borderBottom:'1px solid #e2e8f0' }}>
+   {['Name','Phone','Email','Visits','Last Visit','Total Spend','Flag'].map(h => (
+   <th key={h} style={{ padding:'10px 16px', textAlign:'left', fontSize:11, fontWeight:800, color:'#64748b', textTransform:'uppercase', letterSpacing:0.8 }}>{h}</th>
+   ))}
+   </tr>
+   </thead>
+   <tbody>
+   {clients.map((c,i) => (
+   <tr key={c.id} onClick={() => openDetail(c)}
+   style={{ borderBottom: i < clients.length-1 ? '1px solid #f1f5f9' : 'none', cursor:'pointer', background:'#fff' }}
+   onMouseEnter={e => e.currentTarget.style.background='#f8fafc'}
+   onMouseLeave={e => e.currentTarget.style.background='#fff'}>
+   <td style={{ padding:'12px 16px', fontWeight:700, fontSize:14, color:'#0f172a' }}>{c.full_name}</td>
+   <td style={{ padding:'12px 16px', fontSize:13, color:'#475569' }}>{c.phone||'—'}</td>
+   <td style={{ padding:'12px 16px', fontSize:13, color:'#475569' }}>{c.email||'—'}</td>
+   <td style={{ padding:'12px 16px', fontSize:13, fontWeight:700, color:'#0f172a' }}>{c.total_visits}</td>
+   <td style={{ padding:'12px 16px', fontSize:13, color:'#475569' }}>
+   {c.last_visit ? new Date(c.last_visit).toLocaleDateString('en-GB', { day:'numeric', month:'short', year:'numeric' }) : '—'}
+   </td>
+   <td style={{ padding:'12px 16px', fontSize:13, fontWeight:700, color:'#059669' }}>
+   {c.total_spend > 0 ? `£${c.total_spend.toFixed(2)}` : '—'}
+   </td>
+   <td style={{ padding:'12px 16px' }} onClick={e => e.stopPropagation()}>
+   <button
+     title={c.difficult_client ? 'Remove difficult flag' : 'Flag as difficult client'}
+     onClick={async () => {
+       const newVal = !c.difficult_client
+       setClients(prev => prev.map(x => x.id === c.id ? { ...x, difficult_client: newVal } : x))
+       await axios.patch(API + '/api/customers/' + c.id, { difficult_client: newVal }).catch(() => {})
+     }}
+     style={{ background:'none', border:'none', cursor:'pointer', padding:4, display:'flex', alignItems:'center' }}
+   >
+     <FlagIcon active={c.difficult_client || false} size={14} />
+   </button>
+   </td>
+   </tr>
+   ))}
+   {clients.length === 0 && (
+   <tr><td colSpan={6} style={{ padding:'40px 16px', textAlign:'center', color:'#94a3b8', fontSize:14 }}>
+   {search ? 'No clients found matching your search.' : 'No clients yet.'}
+   </td></tr>
+   )}
+   </tbody>
+   </table>
+   </div>
  )}
  </div>
  )
@@ -1090,6 +1155,8 @@ function SignupPage({ onLogin, onBack }) {
 
 // Main App (authenticated)
 function MainApp({ salon, onLogout }) {
+ const isMobile = useIsMobile()
+ const [sidebarOpen, setSidebarOpen] = useState(false)
  const calRef = useRef(null)
  const bubbleClickRef = useRef(false) // prevents dateClick from navigating when bubble is clicked
 
@@ -1134,6 +1201,17 @@ function MainApp({ salon, onLogout }) {
  const [form, setForm] = useState(emptyForm)
 
  useEffect(() => { loadAll() }, [])
+
+ // Switch FullCalendar view when crossing mobile/desktop boundary
+ useEffect(() => {
+   const api = calRef.current?.getApi()
+   if (!api) return
+   if (isMobile) {
+     api.changeView('listWeek')
+   } else if (api.view.type === 'listWeek') {
+     api.changeView('resourceTimeGridDay')
+   }
+ }, [isMobile])
 
  async function loadAll() {
  try {
@@ -1656,8 +1734,47 @@ await axios.put(API + '/api/bookings/' + editingId, {
  return (
  <div style={{ display:'flex', height:'100vh', fontFamily:'ui-sans-serif, system-ui, sans-serif', background:'#ffffff', overflow:'hidden' }}>
 
- {/* Sidebar */}
- <div style={{ width:230, background:'#ffffff', color:'#0f172a', display:'flex', flexDirection:'column', flexShrink:0, borderRight:'1px solid #e2e8f0' }}>
+ {/* ── Mobile top bar ── */}
+ {isMobile && (
+   <div style={{ position:'fixed', top:0, left:0, right:0, height:56, background:'#fff', borderBottom:'1px solid #e2e8f0', display:'flex', alignItems:'center', justifyContent:'space-between', padding:'0 16px', zIndex:1000, flexShrink:0 }}>
+     <div style={{ display:'flex', alignItems:'center', gap:8 }}>
+       <img src={orbitLogo} alt="Orbit" style={{ width:32, height:32, objectFit:'contain' }} />
+       <span style={{ fontSize:16, fontWeight:800, color:'#0f172a' }}>Orbit Calendar</span>
+     </div>
+     <button onClick={() => setSidebarOpen(o => !o)} style={{ background:'none', border:'none', cursor:'pointer', padding:8, display:'flex', flexDirection:'column', gap:5, minHeight:44, alignItems:'center', justifyContent:'center' }}>
+       <span style={{ display:'block', width:22, height:2, background:'#0f172a', borderRadius:1 }} />
+       <span style={{ display:'block', width:22, height:2, background:'#0f172a', borderRadius:1 }} />
+       <span style={{ display:'block', width:22, height:2, background:'#0f172a', borderRadius:1 }} />
+     </button>
+   </div>
+ )}
+
+ {/* ── Mobile sidebar backdrop ── */}
+ {isMobile && sidebarOpen && (
+   <div onClick={() => setSidebarOpen(false)} style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.4)', zIndex:1001 }} />
+ )}
+
+ {/* ── Sidebar ── */}
+ <div style={{
+   width:230,
+   background:'#ffffff',
+   color:'#0f172a',
+   display:'flex',
+   flexDirection:'column',
+   flexShrink:0,
+   borderRight:'1px solid #e2e8f0',
+   ...(isMobile ? {
+     position:'fixed',
+     top:0,
+     left:0,
+     height:'100vh',
+     zIndex:1002,
+     transform: sidebarOpen ? 'translateX(0)' : 'translateX(-100%)',
+     transition:'transform 0.25s ease',
+     overflowY:'auto',
+     boxShadow: sidebarOpen ? '4px 0 24px rgba(0,0,0,0.15)' : 'none',
+   } : {}),
+ }}>
  <div style={{ padding:'20px 20px 14px', display:'flex', alignItems:'center', gap:10 }}>
  <img src={orbitLogo} alt="Orbit" style={{ width:40, height:40, objectFit:'contain', flexShrink:0 }} />
  <div>
@@ -1677,7 +1794,7 @@ await axios.put(API + '/api/bookings/' + editingId, {
 { id:'shop',      icon:'', label:'Shop' },
 { id:'widget',    icon:'', label:'Chat Widget' },
  ].map(n => (
- <button key={n.id} onClick={() => setView(n.id)}
+ <button key={n.id} onClick={() => { setView(n.id); if (isMobile) setSidebarOpen(false) }}
  style={{ width:'100%', textAlign:'left', padding:'9px 12px', borderRadius:10, border:'none',
  background: view===n.id ? '#f1f5f9' : 'transparent',
  color: view===n.id ? '#0f172a' : '#64748b', fontWeight:700, fontSize:13,
@@ -1685,7 +1802,7 @@ await axios.put(API + '/api/bookings/' + editingId, {
  <span>{n.icon}</span>{n.label}
  </button>
  ))}
- <button onClick={() => setShowHours(true)}
+ <button onClick={() => { setShowHours(true); if (isMobile) setSidebarOpen(false) }}
  style={{ width:'100%', textAlign:'left', padding:'9px 12px', borderRadius:10, border:'none',
  background:'transparent', color:'#64748b', fontWeight:700, fontSize:13,
  cursor:'pointer', display:'flex', alignItems:'center', gap:9, marginBottom:2 }}>
@@ -1740,7 +1857,7 @@ await axios.put(API + '/api/bookings/' + editingId, {
  </div>
 
  {/* Main content */}
- <div style={{ flex:1, overflow:'hidden', display:'flex', flexDirection:'column' }}>
+ <div style={{ flex:1, overflow:'hidden', display:'flex', flexDirection:'column', paddingTop: isMobile ? 56 : 0, marginLeft: isMobile ? 0 : undefined }}>
  {view === 'calendar' && (
  <div style={{ flex:1, overflow:'auto', padding:24 }}>
  <style>{calendarCss}</style>
@@ -1754,11 +1871,11 @@ await axios.put(API + '/api/bookings/' + editingId, {
  <FullCalendar
  ref={calRef}
  plugins={[resourceTimeGridPlugin, dayGridPlugin, interactionPlugin]}
- initialView="resourceTimeGridDay"
+ initialView={isMobile ? 'listWeek' : 'resourceTimeGridDay'}
  resources={resources}
  events={events}
- selectable={true}
- editable={true}
+ selectable={!isMobile}
+ editable={!isMobile}
  select={openCreate}
  eventClick={openEdit}
  eventDrop={handleDrop}
@@ -1772,7 +1889,9 @@ await axios.put(API + '/api/bookings/' + editingId, {
  height="auto"
  nowIndicator={true}
  timeZone={salon?.timezone || 'local'}
- headerToolbar={{ left:'prev,next today', center:'title', right:'resourceTimeGridDay,dayGridMonth' }}
+ headerToolbar={isMobile
+   ? { left:'prev,next today', center:'title', right:'' }
+   : { left:'prev,next today', center:'title', right:'resourceTimeGridDay,dayGridMonth' }}
  eventContent={(info) => {
    const bk = info.event.extendedProps
    if (bk.isBlock) {

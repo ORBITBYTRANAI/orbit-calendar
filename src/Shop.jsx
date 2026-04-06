@@ -1,6 +1,16 @@
 import React, { useState, useEffect, useCallback } from 'react'
 import axios from 'axios'
 
+function useIsMobile() {
+  const [m, setM] = useState(() => typeof window !== 'undefined' && window.innerWidth < 768)
+  useEffect(() => {
+    const h = () => setM(window.innerWidth < 768)
+    window.addEventListener('resize', h)
+    return () => window.removeEventListener('resize', h)
+  }, [])
+  return m
+}
+
 const API = 'https://orbit-backend-production-e46d.up.railway.app'
 const BRAND = '#C8622A'
 
@@ -438,6 +448,7 @@ function CartTab({ cartItems, onUpdateQty, onRemove, onClearCart, onOrderPlaced,
 const emptyInvForm = () => ({ product_id: '', stock_level: 0, auto_reorder: false, reorder_qty: 5 })
 
 function InventoryTab({ onAddToCart }) {
+  const isMobile = useIsMobile()
   const [rows,       setRows]       = useState([])
   const [products,   setProducts]   = useState([])
   const [loading,    setLoading]    = useState(true)
@@ -535,60 +546,100 @@ function InventoryTab({ onAddToCart }) {
         </div>
       )}
 
-      <div style={{ ...card, padding: 0, overflow: 'hidden' }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
-          <thead>
-            <tr style={{ background: '#f8fafc' }}>
-              {['Product', 'SKU', 'Stock', 'Auto-Reorder', 'Reorder qty', ''].map(h => (
-                <th key={h} style={{ padding: '10px 16px', textAlign: 'left', fontWeight: 800, color: '#64748b', fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.6, borderBottom: '1px solid #e2e8f0' }}>{h}</th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map(row => {
-              const p = row.shop_products || {}
-              return (
-                <tr key={row.product_id} style={{ borderBottom: '1px solid #f1f5f9' }}>
-                  <td style={{ padding: '12px 16px' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                      {p.image_base64
-                        ? <img src={p.image_base64} alt={p.name} style={{ width: 28, height: 28, objectFit: 'cover', borderRadius: 5 }} />
-                        : <span style={{ fontSize: 20 }}>{p.emoji}</span>
-                      }
-                      <div>
-                        <div style={{ fontWeight: 700, color: '#0f172a' }}>{p.name}</div>
-                        {p.variant && <div style={{ fontSize: 11, color: '#94a3b8' }}>{p.variant}</div>}
-                      </div>
-                    </div>
-                  </td>
-                  <td style={{ padding: '12px 16px', color: '#64748b', fontFamily: 'monospace', fontSize: 12 }}>{p.sku || '—'}</td>
-                  <td style={{ padding: '12px 16px', fontWeight: 700, color: '#0f172a' }}>{row.stock_level}</td>
-                  <td style={{ padding: '12px 16px' }}>
-                    <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>
-                      <input type="checkbox" checked={row.auto_reorder ?? false} onChange={e => updateField(row, 'auto_reorder', e.target.checked)} style={{ accentColor: '#0f172a', width: 16, height: 16 }} />
-                      <span style={{ fontSize: 12, color: '#64748b' }}>{row.auto_reorder ? 'On' : 'Off'}</span>
-                    </label>
-                  </td>
-                  <td style={{ padding: '12px 16px' }}>
-                    <input type="number" min={1} value={row.reorder_qty ?? 5} onChange={e => updateField(row, 'reorder_qty', parseInt(e.target.value) || 1)} style={numInp} />
-                  </td>
-                  <td style={{ padding: '12px 16px' }}>
-                    <button
-                      onClick={() => onAddToCart(row.product_id, row.reorder_qty ?? 1, p.name)}
-                      style={{ padding: '5px 12px', borderRadius: 7, border: 'none', background: '#0f172a', color: '#fff', fontWeight: 700, fontSize: 12, cursor: 'pointer', fontFamily: 'inherit' }}>
+      {isMobile ? (
+        /* ── Mobile: inventory cards ── */
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          {rows.length === 0 && <div style={{ padding: 24, textAlign: 'center', color: '#94a3b8', fontSize: 13 }}>No inventory records yet.</div>}
+          {rows.map(row => {
+            const p = row.shop_products || {}
+            return (
+              <div key={row.product_id} style={{ ...card }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
+                  {p.image_base64
+                    ? <img src={p.image_base64} alt={p.name} style={{ width: 36, height: 36, objectFit: 'cover', borderRadius: 6, flexShrink: 0 }} />
+                    : <span style={{ fontSize: 24, flexShrink: 0 }}>{p.emoji || '📦'}</span>
+                  }
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontWeight: 700, color: '#0f172a', fontSize: 14 }}>{p.name}</div>
+                    {p.sku && <div style={{ fontSize: 11, color: '#94a3b8', fontFamily: 'monospace' }}>{p.sku}</div>}
+                  </div>
+                  <span style={{ fontWeight: 800, fontSize: 16, color: '#0f172a' }}>{row.stock_level}</span>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', fontSize: 13 }}>
+                    <input type="checkbox" checked={row.auto_reorder ?? false} onChange={e => updateField(row, 'auto_reorder', e.target.checked)} style={{ accentColor: '#0f172a', width: 16, height: 16 }} />
+                    Auto-reorder
+                  </label>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <span style={{ fontSize: 12, color: '#64748b' }}>Qty:</span>
+                    <input type="number" min={1} value={row.reorder_qty ?? 5} onChange={e => updateField(row, 'reorder_qty', parseInt(e.target.value) || 1)} style={{ ...numInp, width: 52 }} />
+                    <button onClick={() => onAddToCart(row.product_id, row.reorder_qty ?? 1, p.name)}
+                      style={{ padding: '8px 14px', borderRadius: 7, border: 'none', background: '#0f172a', color: '#fff', fontWeight: 700, fontSize: 12, cursor: 'pointer', fontFamily: 'inherit', minHeight: 44 }}>
                       Reorder
                     </button>
-                    {saving[row.product_id] && <span style={{ marginLeft: 6, fontSize: 11, color: '#94a3b8' }}>saving…</span>}
-                  </td>
-                </tr>
-              )
-            })}
-          </tbody>
-        </table>
-        {rows.length === 0 && (
-          <div style={{ padding: 32, textAlign: 'center', color: '#94a3b8', fontSize: 13 }}>No inventory records yet.</div>
-        )}
-      </div>
+                  </div>
+                </div>
+                {saving[row.product_id] && <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 4 }}>saving…</div>}
+              </div>
+            )
+          })}
+        </div>
+      ) : (
+        /* ── Desktop: table ── */
+        <div style={{ ...card, padding: 0, overflow: 'hidden' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+            <thead>
+              <tr style={{ background: '#f8fafc' }}>
+                {['Product', 'SKU', 'Stock', 'Auto-Reorder', 'Reorder qty', ''].map(h => (
+                  <th key={h} style={{ padding: '10px 16px', textAlign: 'left', fontWeight: 800, color: '#64748b', fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.6, borderBottom: '1px solid #e2e8f0' }}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map(row => {
+                const p = row.shop_products || {}
+                return (
+                  <tr key={row.product_id} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                    <td style={{ padding: '12px 16px' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        {p.image_base64
+                          ? <img src={p.image_base64} alt={p.name} style={{ width: 28, height: 28, objectFit: 'cover', borderRadius: 5 }} />
+                          : <span style={{ fontSize: 20 }}>{p.emoji}</span>
+                        }
+                        <div>
+                          <div style={{ fontWeight: 700, color: '#0f172a' }}>{p.name}</div>
+                          {p.variant && <div style={{ fontSize: 11, color: '#94a3b8' }}>{p.variant}</div>}
+                        </div>
+                      </div>
+                    </td>
+                    <td style={{ padding: '12px 16px', color: '#64748b', fontFamily: 'monospace', fontSize: 12 }}>{p.sku || '—'}</td>
+                    <td style={{ padding: '12px 16px', fontWeight: 700, color: '#0f172a' }}>{row.stock_level}</td>
+                    <td style={{ padding: '12px 16px' }}>
+                      <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>
+                        <input type="checkbox" checked={row.auto_reorder ?? false} onChange={e => updateField(row, 'auto_reorder', e.target.checked)} style={{ accentColor: '#0f172a', width: 16, height: 16 }} />
+                        <span style={{ fontSize: 12, color: '#64748b' }}>{row.auto_reorder ? 'On' : 'Off'}</span>
+                      </label>
+                    </td>
+                    <td style={{ padding: '12px 16px' }}>
+                      <input type="number" min={1} value={row.reorder_qty ?? 5} onChange={e => updateField(row, 'reorder_qty', parseInt(e.target.value) || 1)} style={numInp} />
+                    </td>
+                    <td style={{ padding: '12px 16px' }}>
+                      <button onClick={() => onAddToCart(row.product_id, row.reorder_qty ?? 1, p.name)}
+                        style={{ padding: '5px 12px', borderRadius: 7, border: 'none', background: '#0f172a', color: '#fff', fontWeight: 700, fontSize: 12, cursor: 'pointer', fontFamily: 'inherit' }}>
+                        Reorder
+                      </button>
+                      {saving[row.product_id] && <span style={{ marginLeft: 6, fontSize: 11, color: '#94a3b8' }}>saving…</span>}
+                    </td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+          {rows.length === 0 && (
+            <div style={{ padding: 32, textAlign: 'center', color: '#94a3b8', fontSize: 13 }}>No inventory records yet.</div>
+          )}
+        </div>
+      )}
     </div>
   )
 }
