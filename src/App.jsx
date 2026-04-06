@@ -26,6 +26,11 @@ function getPaymentMethods(country) {
 }
 const DAYS = ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday']
 
+function fmtTime(iso, timezone, opts) {
+  if (!iso) return ''
+  return new Intl.DateTimeFormat('en-GB', { timeZone: timezone || 'Europe/London', ...opts }).format(new Date(iso))
+}
+
 const DEFAULT_HOURS = DAYS.map((d, i) => ({
  day: d,
  open: i < 6,
@@ -68,7 +73,7 @@ function FlagIcon({ active, size=14 }) {
 }
 
 // Checkout Modal 
-function CheckoutModal({ booking, services, onClose, onComplete, receiptData, country, loyaltyDiscount }) {
+function CheckoutModal({ booking, services, onClose, onComplete, receiptData, country, loyaltyDiscount, timezone }) {
  const selectedSvcs = booking.service_ids?.length
  ? booking.service_ids.map(id => services.find(s => s.id === id)).filter(Boolean)
  : (booking.service_id ? [services.find(s => s.id === booking.service_id)].filter(Boolean) : [])
@@ -145,7 +150,7 @@ function CheckoutModal({ booking, services, onClose, onComplete, receiptData, co
 
  if (done) {
  const receiptId = 'RCP-' + booking.id?.slice(0,8).toUpperCase()
- const printedAt = new Date().toLocaleString('en-GB', { weekday:'short', day:'numeric', month:'short', year:'numeric', hour:'2-digit', minute:'2-digit' })
+ const printedAt = fmtTime(new Date().toISOString(), timezone, { weekday:'short', day:'numeric', month:'short', year:'numeric', hour:'2-digit', minute:'2-digit' })
 
  function printReceipt() {
  const w = window.open('', '_blank', 'width=420,height=600')
@@ -167,7 +172,7 @@ function CheckoutModal({ booking, services, onClose, onComplete, receiptData, co
  <div class="row"><span class="label">Client</span><span>${booking.customers?.full_name || 'Guest'}</span></div>
  <div class="row"><span class="label">Service</span><span>${svc?.name || '—'}</span></div>
  <div class="row"><span class="label">Technician</span><span>${booking.technicians?.name || '—'}</span></div>
- <div class="row"><span class="label">Date</span><span>${new Date(booking.start_time).toLocaleString('en-GB', { weekday:'short', day:'numeric', month:'short', hour:'2-digit', minute:'2-digit' })}</span></div>
+ <div class="row"><span class="label">Date</span><span>${fmtTime(booking.start_time, timezone, { weekday:'short', day:'numeric', month:'short', hour:'2-digit', minute:'2-digit' })}</span></div>
  <hr class="divider"/>
  ${splits.map(s => `<div class="payment">${s.method} — £${parseFloat(s.amount).toFixed(2)}</div>`).join('')}
  <div class="total-row"><span>Total</span><span>£${total.toFixed(2)}</span></div>
@@ -224,7 +229,7 @@ function CheckoutModal({ booking, services, onClose, onComplete, receiptData, co
  </div>
  <div style={{ display:'flex', justifyContent:'space-between', fontSize:13, marginBottom:12 }}>
  <span style={{ color:'#64748b' }}>Date</span>
- <span style={{ fontWeight:700 }}>{new Date(booking.start_time).toLocaleString('en-GB', { weekday:'short', day:'numeric', month:'short', hour:'2-digit', minute:'2-digit' })}</span>
+ <span style={{ fontWeight:700 }}>{fmtTime(booking.start_time, timezone, { weekday:'short', day:'numeric', month:'short', hour:'2-digit', minute:'2-digit' })}</span>
  </div>
  <div style={{ borderTop:'1px solid #e2e8f0', paddingTop:10, marginTop:4 }}>
 {upsellItems.length > 0 && upsellItems.map((p, i) => (
@@ -276,7 +281,7 @@ function CheckoutModal({ booking, services, onClose, onComplete, receiptData, co
  {svc?.name || 'Service'}{booking.technicians?.name ? ' · ' + booking.technicians.name : ''}
  </div>
  <div style={{ fontSize:13, color:'#64748b', marginTop:3 }}>
- {new Date(booking.start_time).toLocaleString('en-GB', { weekday:'short', day:'numeric', month:'short', hour:'2-digit', minute:'2-digit' })}
+ {fmtTime(booking.start_time, timezone, { weekday:'short', day:'numeric', month:'short', hour:'2-digit', minute:'2-digit' })}
  </div>
  </div>
  {upsellItems.length > 0 && (
@@ -1717,6 +1722,7 @@ await axios.put(API + '/api/bookings/' + editingId, {
  services={services}
  receiptData={checkoutReceiptData}
  country={salon?.country}
+ timezone={salon?.timezone}
  loyaltyDiscount={checkoutLoyaltyDiscount}
  onClose={() => { setShowCheckout(false); setCheckoutBooking(null); setCheckoutReceiptData(null) }}
  onComplete={(id, closeModal = true) => {
@@ -1988,7 +1994,7 @@ return (
            style={{ width:'100%', textAlign:'left', padding:'8px 12px', background:'none', border:'none', borderBottom: i < portalBks.length - 1 ? '1px solid #f1f5f9' : 'none', cursor:'pointer', display:'block' }}
          >
            <div style={{ fontWeight:700, fontSize:12, color:'#0f172a' }}>
-             {new Date(bk.start_time).toLocaleTimeString('en-GB', { hour:'2-digit', minute:'2-digit' })} · {bk.customers?.full_name || 'Guest'}
+             {fmtTime(bk.start_time, salon?.timezone, { hour:'2-digit', minute:'2-digit' })} · {bk.customers?.full_name || 'Guest'}
            </div>
            {bk.services?.name && <div style={{ fontSize:11, color:'#64748b', marginTop:1 }}>{bk.services.name}</div>}
          </button>
