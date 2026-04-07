@@ -1193,7 +1193,10 @@ function MainApp({ salon, onLogout }) {
  const [clientDifficult, setClientDifficult] = useState(false)
  const [blocks, setBlocks] = useState([])
  const [blockMode, setBlockMode] = useState(false)
- const [blockToast, setBlockToast] = useState(null) // { id, message }
+ const [blockToast, setBlockToast] = useState(null)
+ const [pendingHighlight, setPendingHighlight] = useState(null) // { dateStr, resourceId } — mobile two-tap slot
+ const pendingSlotRef = useRef(null)
+ const pendingTimer = useRef(null) // { id, message }
  const [confirmModal, setConfirmModal] = useState(null) // { title, message, confirmLabel, cancelLabel, destructive, onConfirm, extras }
  const [cancelReason, setCancelReason] = useState('Customer requested')
  const [cancelOther, setCancelOther] = useState('')
@@ -1317,6 +1320,22 @@ function MainApp({ salon, onLogout }) {
  return [...bookingEvents, ...blockEvents]
 }, [bookings, blocks, services])
 
+
+ // Pending highlight background event for mobile two-tap booking
+ const allEvents = useMemo(() => {
+   if (!pendingHighlight) return events
+   const endMs = new Date(pendingHighlight.dateStr).getTime() + 30 * 60 * 1000
+   return [...events, {
+     id: '__pending_slot__',
+     start: pendingHighlight.dateStr,
+     end: new Date(endMs).toISOString(),
+     resourceId: pendingHighlight.resourceId,
+     display: 'background',
+     backgroundColor: 'rgba(200, 98, 42, 0.18)',
+     classNames: ['fc-slot-pending'],
+   }]
+ }, [events, pendingHighlight])
+
  // Opening hours → slot range (slotMax extends 1 hr past closing for staff overflow)
  const { slotMin, slotMax } = useMemo(() => {
    const openDays = openingHours.filter(h => h.open)
@@ -1352,18 +1371,51 @@ function MainApp({ salon, onLogout }) {
 .fc .fc-timegrid-now-indicator-line::before { content: ''; position: absolute; left: -4px; top: -4px; width: 8px; height: 8px; background: #ef4444; border-radius: 50%; }
 .fc .fc-timegrid-now-indicator-arrow { display: none; }
 .orbit-block-event .fc-event-main { padding: 0 !important; }
+.fc-slot-pending { border: 2px dashed rgba(200, 98, 42, 0.7) !important; border-radius: 4px !important; }
 ${closedDayNames.map(d => `.fc .fc-day[data-dow="${d}"] { background: #f1f5f9 !important; opacity: 0.6; }`).join('\n')}
 `, [closedDayNames])
 
  // Date / slot click handlers — wrapped in useCallback so FullCalendar gets stable references
+ const clearPending = useCallback(() => {
+   clearTimeout(pendingTimer.current)
+   pendingSlotRef.current = null
+   setPendingHighlight(null)
+ }, [])
+
  const handleDateClick = useCallback((info) => {
  // Bubble button sets this flag so its click doesn't also trigger navigation
  if (bubbleClickRef.current) { bubbleClickRef.current = false; return }
  const api = calRef.current?.getApi()
  if (api?.view.type === 'dayGridMonth') {
    api.changeView('resourceTimeGridDay', info.dateStr)
+   return
  }
- }, [])
+ // Mobile two-tap: first tap highlights slot, second tap on same slot opens modal
+ if (isMobile) {
+   const resourceId = info.resource?.id || null
+   const dateStr = info.dateStr
+   const ps = pendingSlotRef.current
+   if (ps && ps.dateStr === dateStr && ps.resourceId === resourceId) {
+     // Second tap — open booking modal
+     clearTimeout(pendingTimer.current)
+     pendingSlotRef.current = null
+     setPendingHighlight(null)
+     setEditingId(null)
+     setSvcSearch('')
+     setForm({ full_name:'', phone:'', email:'', technician_id: resourceId || '', service_ids:[], start_time: dateStr.slice(0,16), notes:'' })
+     setShowBooking(true)
+   } else {
+     // First tap (or different slot) — set highlight
+     clearTimeout(pendingTimer.current)
+     pendingSlotRef.current = { dateStr, resourceId }
+     setPendingHighlight({ dateStr, resourceId })
+     pendingTimer.current = setTimeout(() => {
+       pendingSlotRef.current = null
+       setPendingHighlight(null)
+     }, 5000)
+   }
+ }
+ }, [isMobile])
 
  const openCreate = useCallback((info) => {
  const api = calRef.current?.getApi()
@@ -1858,7 +1910,14 @@ await axios.put(API + '/api/bookings/' + editingId, {
      {blockMode ? '✕ Exit Block Mode' : '⬛ Block Time'}
    </button>
  </div>
- <div style={isMobile ? { overflowX: 'auto', scrollSnapType: 'x mandatory', WebkitOverflowScrolling: 'touch' } : {}}>
+ {pendingHighlight && isMobile && (
+  <div style={{ textAlign: 'center', marginBottom: 8 }}>
+    <span style={{ display: 'inline-block', background: 'rgba(200,98,42,0.9)', color: '#fff', borderRadius: 20, padding: '6px 16px', fontSize: 13, fontWeight: 700, boxShadow: '0 2px 8px rgba(0,0,0,0.18)' }}>
+      Tap the slot again to book
+    </span>
+  </div>
+)}
+<div style={isMobile ? { overflowX: 'auto', scrollSnapType: 'x mandatory', WebkitOverflowScrolling: 'touch' } : {}}>
  <FullCalendar
  ref={calRef}
  plugins={[resourceTimeGridPlugin, dayGridPlugin, listPlugin, interactionPlugin]}
@@ -1866,9 +1925,12 @@ await axios.put(API + '/api/bookings/' + editingId, {
  schedulerLicenseKey="CC-Attribution-NonCommercial-NoDerivatives"
  datesAboveResources={true}
  resources={resources}
- events={events}
- selectable={true}
- editable={true}
+ events={allEvents}
+ selectable={!isMobile}
+ editable={!isMobile}
+ longPressDelay={0}
+ selectLongPressDelay={0}
+ eventLongPressDelay={0}
  select={openCreate}
  eventClick={openEdit}
  eventDrop={handleDrop}
