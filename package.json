@@ -15,6 +15,8 @@
     "@fullcalendar/list": "^6.1.20",
     "@fullcalendar/react": "^6.1.20",
     "@fullcalendar/resource-timegrid": "^6.1.20",
+    "@stripe/react-stripe-js": "^6.1.0",
+    "@stripe/stripe-js": "^9.1.0",
     "axios": "^1.13.6",
     "react": "^19.2.0",
     "react-dom": "^19.2.0"
