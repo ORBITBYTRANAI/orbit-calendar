@@ -1203,17 +1203,6 @@ function MainApp({ salon, onLogout }) {
 
  useEffect(() => { loadAll() }, [])
 
- // Switch FullCalendar view when crossing mobile/desktop boundary
- useEffect(() => {
-   const api = calRef.current?.getApi()
-   if (!api) return
-   if (isMobile) {
-     api.changeView('listWeek')
-   } else if (api.view.type === 'listWeek') {
-     api.changeView('resourceTimeGridDay')
-   }
- }, [isMobile])
-
  async function loadAll() {
  try {
  const [b, t, s, bl] = await Promise.all([
@@ -1869,14 +1858,17 @@ await axios.put(API + '/api/bookings/' + editingId, {
      {blockMode ? '✕ Exit Block Mode' : '⬛ Block Time'}
    </button>
  </div>
+ <div style={isMobile ? { overflowX: 'auto', scrollSnapType: 'x mandatory', WebkitOverflowScrolling: 'touch' } : {}}>
  <FullCalendar
  ref={calRef}
  plugins={[resourceTimeGridPlugin, dayGridPlugin, listPlugin, interactionPlugin]}
- initialView={isMobile ? 'listWeek' : 'resourceTimeGridDay'}
+ initialView="resourceTimeGridDay"
+ schedulerLicenseKey="CC-Attribution-NonCommercial-NoDerivatives"
+ datesAboveResources={true}
  resources={resources}
  events={events}
- selectable={!isMobile}
- editable={!isMobile}
+ selectable={true}
+ editable={true}
  select={openCreate}
  eventClick={openEdit}
  eventDrop={handleDrop}
@@ -1979,6 +1971,7 @@ await axios.put(API + '/api/bookings/' + editingId, {
    )
  }}
  />
+ </div>
  </div>
  )}
  {view === 'clients' && <ClientsView />}

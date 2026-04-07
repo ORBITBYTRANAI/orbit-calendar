@@ -6,12 +6,9 @@
   button { min-height: 44px; }
   input, select, textarea { min-height: 44px; }
 
-  /* FullCalendar list view — larger, readable text */
-  .fc-event-title, .fc-list-event-title { font-size: 14px !important; }
-  .fc-list-event-time { font-size: 13px !important; }
-  .fc-list-day-cushion { padding: 10px 14px !important; font-size: 13px !important; }
-  .fc-list-event td { padding: 10px 14px !important; }
-  .fc-list-event-dot { display: none !important; }
+  /* FullCalendar resource day view — 2 columns visible, swipeable */
+  .fc-col-header-cell.fc-resource,
+  .fc-timegrid-col.fc-resource { min-width: 50vw; scroll-snap-align: start; }
 
   /* Prevent horizontal body overflow */
   body { overflow-x: hidden; }

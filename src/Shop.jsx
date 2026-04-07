@@ -682,28 +682,11 @@ function OrdersTab({ isAdmin }) {
     }
   }
 
-  async function cleanupGhosts() {
-    try {
-      const r = await axios.post(`${API}/api/shop/admin/orders/cleanup-ghosts`)
-      alert(`Done — ${r.data.deleted} ghost order${r.data.deleted !== 1 ? 's' : ''} deleted.`)
-      loadOrders()
-    } catch (err) {
-      alert(err.response?.data?.error || 'Cleanup failed.')
-    }
-  }
-
   if (loading) return <p style={{ color: '#94a3b8', fontSize: 13 }}>Loading orders…</p>
   if (!orders.length) return <p style={{ color: '#94a3b8', fontSize: 13 }}>No orders yet.</p>
 
   return (
     <>
-      {isAdmin && (
-        <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 12 }}>
-          <button onClick={cleanupGhosts} style={{ ...btnCancel, padding: '7px 14px', fontSize: 12, color: '#ef4444', borderColor: '#fca5a5' }}>
-            Clean up ghost orders
-          </button>
-        </div>
-      )}
       <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
         {orders.map(order => (
           <div key={order.id} style={{ ...card }}>
@@ -832,6 +815,7 @@ function AdminTab() {
 function emptySupplier() { return { name: '', contact_email: '', website: '' } }
 
 function SuppliersSection({ suppliers, onRefresh }) {
+  const isMobile = useIsMobile()
   const [adding, setAdding] = useState(false)
   const [editId, setEditId] = useState(null)
   const [form,   setForm]   = useState(emptySupplier())
@@ -871,35 +855,75 @@ function SuppliersSection({ suppliers, onRefresh }) {
     </tr>
   )
 
+  const addingForm = (
+    <div style={{ ...card, marginBottom: 8, display: 'flex', flexDirection: 'column', gap: 8 }}>
+      <input value={form.name}          onChange={e => set('name', e.target.value)}          placeholder="Supplier name"       style={{ ...inp }} />
+      <input value={form.contact_email} onChange={e => set('contact_email', e.target.value)} placeholder="contact@example.com" style={{ ...inp }} />
+      <input value={form.website}       onChange={e => set('website', e.target.value)}       placeholder="https://…"           style={{ ...inp }} />
+      <div style={{ display: 'flex', gap: 8 }}>
+        <button onClick={save} disabled={saving} style={{ ...btnSave, flex: 1 }}>{saving ? 'Saving…' : 'Save'}</button>
+        <button onClick={cancel} style={{ ...btnCancel, flex: 1 }}>Cancel</button>
+      </div>
+    </div>
+  )
+
   return (
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
         <h2 style={{ fontSize: 15, fontWeight: 800, color: '#0f172a', margin: 0 }}>Suppliers</h2>
         {!adding && <button onClick={startAdd} style={{ ...btnSave, padding: '7px 16px' }}>+ Add Supplier</button>}
       </div>
-      <div style={{ ...card, padding: 0, overflow: 'hidden' }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-          <thead><tr style={{ background: '#f8fafc' }}><TH>Name</TH><TH>Contact email</TH><TH>Website</TH><TH></TH></tr></thead>
-          <tbody>
-            {adding && formRow}
-            {suppliers.map(s => editId === s.id
-              ? <tr key={s.id}>{formRow.props.children}</tr>
-              : <tr key={s.id}>
-                  <TD style={{ fontWeight: 700 }}>{s.name}</TD>
-                  <TD style={{ color: '#64748b' }}>{s.contact_email || '—'}</TD>
-                  <TD style={{ color: '#64748b' }}>{s.website || '—'}</TD>
-                  <TD><div style={{ display: 'flex', gap: 4 }}>
-                    <button onClick={() => startEdit(s)} style={btnEdit}>Edit</button>
-                    <button onClick={() => del(s.id)} style={btnDelete}>Delete</button>
-                  </div></TD>
-                </tr>
-            )}
-            {suppliers.length === 0 && !adding && (
-              <tr><td colSpan={4} style={{ padding: '20px 14px', color: '#94a3b8', fontSize: 13, textAlign: 'center' }}>No suppliers yet</td></tr>
-            )}
-          </tbody>
-        </table>
-      </div>
+      {isMobile ? (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+          {adding && addingForm}
+          {suppliers.map(s => editId === s.id ? (
+            <div key={s.id} style={{ ...card, display: 'flex', flexDirection: 'column', gap: 8 }}>
+              <input value={form.name}          onChange={e => set('name', e.target.value)}          placeholder="Supplier name"       style={{ ...inp }} />
+              <input value={form.contact_email} onChange={e => set('contact_email', e.target.value)} placeholder="contact@example.com" style={{ ...inp }} />
+              <input value={form.website}       onChange={e => set('website', e.target.value)}       placeholder="https://…"           style={{ ...inp }} />
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button onClick={save} disabled={saving} style={{ ...btnSave, flex: 1 }}>{saving ? 'Saving…' : 'Save'}</button>
+                <button onClick={cancel} style={{ ...btnCancel, flex: 1 }}>Cancel</button>
+              </div>
+            </div>
+          ) : (
+            <div key={s.id} style={{ ...card }}>
+              <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 4 }}>{s.name}</div>
+              {s.contact_email && <div style={{ fontSize: 12, color: '#64748b', marginBottom: 2 }}><b>Email:</b> {s.contact_email}</div>}
+              {s.website && <div style={{ fontSize: 12, color: '#64748b', marginBottom: 8 }}><b>Website:</b> {s.website}</div>}
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button onClick={() => startEdit(s)} style={{ ...btnEdit, flex: 1 }}>Edit</button>
+                <button onClick={() => del(s.id)} style={{ ...btnDelete, flex: 1 }}>Delete</button>
+              </div>
+            </div>
+          ))}
+          {suppliers.length === 0 && !adding && <p style={{ color: '#94a3b8', fontSize: 13, textAlign: 'center' }}>No suppliers yet</p>}
+        </div>
+      ) : (
+        <div style={{ ...card, padding: 0, overflow: 'hidden' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+            <thead><tr style={{ background: '#f8fafc' }}><TH>Name</TH><TH>Contact email</TH><TH>Website</TH><TH></TH></tr></thead>
+            <tbody>
+              {adding && formRow}
+              {suppliers.map(s => editId === s.id
+                ? <tr key={s.id}>{formRow.props.children}</tr>
+                : <tr key={s.id}>
+                    <TD style={{ fontWeight: 700 }}>{s.name}</TD>
+                    <TD style={{ color: '#64748b' }}>{s.contact_email || '—'}</TD>
+                    <TD style={{ color: '#64748b' }}>{s.website || '—'}</TD>
+                    <TD><div style={{ display: 'flex', gap: 4 }}>
+                      <button onClick={() => startEdit(s)} style={btnEdit}>Edit</button>
+                      <button onClick={() => del(s.id)} style={btnDelete}>Delete</button>
+                    </div></TD>
+                  </tr>
+              )}
+              {suppliers.length === 0 && !adding && (
+                <tr><td colSpan={4} style={{ padding: '20px 14px', color: '#94a3b8', fontSize: 13, textAlign: 'center' }}>No suppliers yet</td></tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   )
 }
@@ -924,6 +948,7 @@ function compressImage(file, cb) {
 function emptyProduct() { return { name: '', sku: '', variant: '', price: '', category: CATEGORIES[0], supplier_id: '', image_base64: null } }
 
 function ProductsSection({ products, suppliers, onRefresh }) {
+  const isMobile = useIsMobile()
   const [adding, setAdding] = useState(false)
   const [editId, setEditId] = useState(null)
   const [form,   setForm]   = useState(emptyProduct())
@@ -1001,46 +1026,131 @@ function ProductsSection({ products, suppliers, onRefresh }) {
         <h2 style={{ fontSize: 15, fontWeight: 800, color: '#0f172a', margin: 0 }}>Products</h2>
         {!adding && <button onClick={startAdd} style={{ ...btnSave, padding: '7px 16px' }}>+ Add Product</button>}
       </div>
-      <div style={{ ...card, padding: 0, overflow: 'hidden' }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-          <thead><tr style={{ background: '#f8fafc' }}>
-            <TH>Photo</TH><TH>Name</TH><TH>SKU</TH><TH>Variant</TH><TH>Price</TH><TH>Category</TH><TH>Supplier</TH><TH></TH>
-          </tr></thead>
-          <tbody>
-            {adding && formRow}
-            {products.map(p => editId === p.id
-              ? <tr key={p.id}>{formRow.props.children}</tr>
-              : <tr key={p.id}>
-                  <TD>
-                    {p.image_base64
-                      ? <img src={p.image_base64} alt={p.name} style={{ width: 40, height: 40, objectFit: 'cover', borderRadius: 6 }} />
-                      : <div style={{ width: 40, height: 40, borderRadius: 6, background: '#f1f5f9', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18 }}>{p.emoji || '📦'}</div>
-                    }
-                  </TD>
-                  <TD style={{ fontWeight: 700 }}>{p.name}</TD>
-                  <TD style={{ color: '#64748b', fontFamily: 'monospace', fontSize: 12 }}>{p.sku || '—'}</TD>
-                  <TD style={{ color: '#64748b' }}>{p.variant || '—'}</TD>
-                  <TD>£{parseFloat(p.price || 0).toFixed(2)}</TD>
-                  <TD style={{ color: '#64748b' }}>{catLabel(p.category)}</TD>
-                  <TD>
-                    {p.supplier_name
-                      ? <span style={{ background: supplierColor(p.supplier_name), borderRadius: 4, padding: '2px 7px', fontSize: 11, fontWeight: 700 }}>{p.supplier_name}</span>
-                      : <span style={{ color: '#94a3b8' }}>—</span>}
-                  </TD>
-                  <TD>
-                    <div style={{ display: 'flex', gap: 4 }}>
-                      <button onClick={() => startEdit(p)} style={btnEdit}>Edit</button>
-                      <button onClick={() => del(p.id)} style={btnDelete}>Delete</button>
-                    </div>
-                  </TD>
-                </tr>
-            )}
-            {products.length === 0 && !adding && (
-              <tr><td colSpan={8} style={{ padding: '20px 14px', color: '#94a3b8', fontSize: 13, textAlign: 'center' }}>No products yet</td></tr>
-            )}
-          </tbody>
-        </table>
-      </div>
+      {isMobile ? (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+          {adding && (
+            <div style={{ ...card, display: 'flex', flexDirection: 'column', gap: 8 }}>
+              <label style={{ cursor: 'pointer', display: 'block', textAlign: 'center' }}>
+                {form.image_base64
+                  ? <img src={form.image_base64} alt="" style={{ width: 60, height: 60, objectFit: 'cover', borderRadius: 8, display: 'inline-block' }} />
+                  : <div style={{ width: 60, height: 60, borderRadius: 8, background: '#f1f5f9', border: '1px dashed #cbd5e1', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 22 }}>+</div>
+                }
+                <input type="file" accept="image/*" style={{ display: 'none' }} onChange={e => { if (e.target.files[0]) compressImage(e.target.files[0], b64 => set('image_base64', b64)) }} />
+              </label>
+              <input value={form.name}    onChange={e => set('name',    e.target.value)} placeholder="Product name" style={{ ...inp }} />
+              <input value={form.sku}     onChange={e => set('sku',     e.target.value)} placeholder="SKU-001"      style={{ ...inp }} />
+              <input value={form.variant} onChange={e => set('variant', e.target.value)} placeholder="e.g. 15ml"   style={{ ...inp }} />
+              <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                <span style={{ fontSize: 13, color: '#64748b' }}>£</span>
+                <input type="number" min={0} step={0.01} value={form.price} onChange={e => set('price', e.target.value)} style={{ ...inp, flex: 1 }} />
+              </div>
+              <select value={form.category} onChange={e => set('category', e.target.value)} style={{ ...inp }}>
+                {CATEGORIES.map(c => <option key={c} value={c}>{catLabel(c)}</option>)}
+              </select>
+              <select value={form.supplier_id} onChange={e => set('supplier_id', e.target.value)} style={{ ...inp }}>
+                <option value="">— no supplier —</option>
+                {suppliers.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+              </select>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button onClick={save} disabled={saving} style={{ ...btnSave, flex: 1 }}>{saving ? 'Saving…' : 'Save'}</button>
+                <button onClick={cancel} style={{ ...btnCancel, flex: 1 }}>Cancel</button>
+              </div>
+            </div>
+          )}
+          {products.map(p => editId === p.id ? (
+            <div key={p.id} style={{ ...card, display: 'flex', flexDirection: 'column', gap: 8 }}>
+              <label style={{ cursor: 'pointer', display: 'block', textAlign: 'center' }}>
+                {form.image_base64
+                  ? <img src={form.image_base64} alt="" style={{ width: 60, height: 60, objectFit: 'cover', borderRadius: 8, display: 'inline-block' }} />
+                  : <div style={{ width: 60, height: 60, borderRadius: 8, background: '#f1f5f9', border: '1px dashed #cbd5e1', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 22 }}>+</div>
+                }
+                <input type="file" accept="image/*" style={{ display: 'none' }} onChange={e => { if (e.target.files[0]) compressImage(e.target.files[0], b64 => set('image_base64', b64)) }} />
+              </label>
+              <input value={form.name}    onChange={e => set('name',    e.target.value)} placeholder="Product name" style={{ ...inp }} />
+              <input value={form.sku}     onChange={e => set('sku',     e.target.value)} placeholder="SKU-001"      style={{ ...inp }} />
+              <input value={form.variant} onChange={e => set('variant', e.target.value)} placeholder="e.g. 15ml"   style={{ ...inp }} />
+              <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                <span style={{ fontSize: 13, color: '#64748b' }}>£</span>
+                <input type="number" min={0} step={0.01} value={form.price} onChange={e => set('price', e.target.value)} style={{ ...inp, flex: 1 }} />
+              </div>
+              <select value={form.category} onChange={e => set('category', e.target.value)} style={{ ...inp }}>
+                {CATEGORIES.map(c => <option key={c} value={c}>{catLabel(c)}</option>)}
+              </select>
+              <select value={form.supplier_id} onChange={e => set('supplier_id', e.target.value)} style={{ ...inp }}>
+                <option value="">— no supplier —</option>
+                {suppliers.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+              </select>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button onClick={save} disabled={saving} style={{ ...btnSave, flex: 1 }}>{saving ? 'Saving…' : 'Save'}</button>
+                <button onClick={cancel} style={{ ...btnCancel, flex: 1 }}>Cancel</button>
+              </div>
+            </div>
+          ) : (
+            <div key={p.id} style={{ ...card, display: 'flex', gap: 12, alignItems: 'flex-start' }}>
+              <div style={{ flexShrink: 0 }}>
+                {p.image_base64
+                  ? <img src={p.image_base64} alt={p.name} style={{ width: 60, height: 60, objectFit: 'cover', borderRadius: 8 }} />
+                  : <div style={{ width: 60, height: 60, borderRadius: 8, background: '#f1f5f9', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 24 }}>{p.emoji || '📦'}</div>
+                }
+              </div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontWeight: 700, fontSize: 14 }}>{p.name}</div>
+                {p.sku && <div style={{ fontSize: 11, fontFamily: 'monospace', color: '#64748b' }}>{p.sku}</div>}
+                {p.variant && <div style={{ fontSize: 12, color: '#64748b' }}>{p.variant}</div>}
+                <div style={{ fontSize: 13, fontWeight: 700, marginTop: 2 }}>£{parseFloat(p.price || 0).toFixed(2)}</div>
+                <div style={{ fontSize: 12, color: '#64748b' }}>{catLabel(p.category)}</div>
+                {p.supplier_name && <span style={{ background: supplierColor(p.supplier_name), borderRadius: 4, padding: '2px 7px', fontSize: 11, fontWeight: 700 }}>{p.supplier_name}</span>}
+                <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+                  <button onClick={() => startEdit(p)} style={{ ...btnEdit, flex: 1 }}>Edit</button>
+                  <button onClick={() => del(p.id)} style={{ ...btnDelete, flex: 1 }}>Delete</button>
+                </div>
+              </div>
+            </div>
+          ))}
+          {products.length === 0 && !adding && <p style={{ color: '#94a3b8', fontSize: 13, textAlign: 'center' }}>No products yet</p>}
+        </div>
+      ) : (
+        <div style={{ ...card, padding: 0, overflow: 'hidden' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+            <thead><tr style={{ background: '#f8fafc' }}>
+              <TH>Photo</TH><TH>Name</TH><TH>SKU</TH><TH>Variant</TH><TH>Price</TH><TH>Category</TH><TH>Supplier</TH><TH></TH>
+            </tr></thead>
+            <tbody>
+              {adding && formRow}
+              {products.map(p => editId === p.id
+                ? <tr key={p.id}>{formRow.props.children}</tr>
+                : <tr key={p.id}>
+                    <TD>
+                      {p.image_base64
+                        ? <img src={p.image_base64} alt={p.name} style={{ width: 40, height: 40, objectFit: 'cover', borderRadius: 6 }} />
+                        : <div style={{ width: 40, height: 40, borderRadius: 6, background: '#f1f5f9', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18 }}>{p.emoji || '📦'}</div>
+                      }
+                    </TD>
+                    <TD style={{ fontWeight: 700 }}>{p.name}</TD>
+                    <TD style={{ color: '#64748b', fontFamily: 'monospace', fontSize: 12 }}>{p.sku || '—'}</TD>
+                    <TD style={{ color: '#64748b' }}>{p.variant || '—'}</TD>
+                    <TD>£{parseFloat(p.price || 0).toFixed(2)}</TD>
+                    <TD style={{ color: '#64748b' }}>{catLabel(p.category)}</TD>
+                    <TD>
+                      {p.supplier_name
+                        ? <span style={{ background: supplierColor(p.supplier_name), borderRadius: 4, padding: '2px 7px', fontSize: 11, fontWeight: 700 }}>{p.supplier_name}</span>
+                        : <span style={{ color: '#94a3b8' }}>—</span>}
+                    </TD>
+                    <TD>
+                      <div style={{ display: 'flex', gap: 4 }}>
+                        <button onClick={() => startEdit(p)} style={btnEdit}>Edit</button>
+                        <button onClick={() => del(p.id)} style={btnDelete}>Delete</button>
+                      </div>
+                    </TD>
+                  </tr>
+              )}
+              {products.length === 0 && !adding && (
+                <tr><td colSpan={8} style={{ padding: '20px 14px', color: '#94a3b8', fontSize: 13, textAlign: 'center' }}>No products yet</td></tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   )
 }
