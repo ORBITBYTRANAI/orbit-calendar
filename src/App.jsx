@@ -7,6 +7,7 @@ import orbitLogo from './assets/orbit-logo.png'
 import FullCalendar from '@fullcalendar/react'
 import resourceTimeGridPlugin from '@fullcalendar/resource-timegrid'
 import dayGridPlugin from '@fullcalendar/daygrid'
+import listPlugin from '@fullcalendar/list'
 import interactionPlugin from '@fullcalendar/interaction'
 import axios from 'axios'
 
@@ -1870,7 +1871,7 @@ await axios.put(API + '/api/bookings/' + editingId, {
  </div>
  <FullCalendar
  ref={calRef}
- plugins={[resourceTimeGridPlugin, dayGridPlugin, interactionPlugin]}
+ plugins={[resourceTimeGridPlugin, dayGridPlugin, listPlugin, interactionPlugin]}
  initialView={isMobile ? 'listWeek' : 'resourceTimeGridDay'}
  resources={resources}
  events={events}
