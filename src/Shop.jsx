@@ -1,5 +1,16 @@
 import React, { useState, useEffect, useCallback } from 'react'
 import axios from 'axios'
+import { loadStripe } from '@stripe/stripe-js'
+import { Elements, PaymentElement, useStripe, useElements } from '@stripe/react-stripe-js'
+
+const stripePromise = loadStripe(import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY || '')
+
+// ── Shipping (mirror backend constants) ───────────────────────────────────────
+const FREE_SHIPPING_THRESHOLD = 50
+const FLAT_SHIPPING_RATE      = 4.99
+function calcShipping(subtotal) {
+  return subtotal >= FREE_SHIPPING_THRESHOLD ? 0 : FLAT_SHIPPING_RATE
+}
 
 function useIsMobile() {
   const [m, setM] = useState(() => typeof window !== 'undefined' && window.innerWidth < 768)
@@ -193,26 +204,21 @@ function ShopTab({ cartItems, onAddToCart, onUpdateQty, onClearCart }) {
     acc[key].push(item)
     return acc
   }, {})
-  const cartTotal = cartEnriched.reduce((s, i) => s + i.qty * parseFloat(i.price || 0), 0)
+  const cartSubtotal = cartEnriched.reduce((s, i) => s + i.qty * parseFloat(i.price || 0), 0)
+  const cartShipping = calcShipping(cartSubtotal)
+  const cartTotal    = cartSubtotal + cartShipping
+  const cartToFree   = FREE_SHIPPING_THRESHOLD - cartSubtotal
 
-  async function placeOrder() {
+  const [stripeSession, setStripeSession] = useState(null)
+
+  async function startCheckout() {
     if (!cartEnriched.length) return
     setPlacing(true)
     try {
-      const items = cartEnriched.map(i => ({
-        product_id:  i.id,
-        qty:         i.qty,
-        unit_price:  i.price,
-        supplier_id: i.supplier_id || null,
-      }))
-      await axios.post(`${API}/api/shop/orders`, { items })
-      await onClearCart()
-      setSuccess(true)
-      setTimeout(() => setSuccess(false), 3000)
-      const r = await axios.get(`${API}/api/shop/products`)
-      setProducts(r.data)
+      const { data } = await axios.post(`${API}/api/shop/cart/checkout`)
+      setStripeSession(data)
     } catch (err) {
-      alert('Order failed: ' + (err.response?.data?.error || err.message))
+      alert('Checkout failed: ' + (err.response?.data?.error || err.message))
     } finally { setPlacing(false) }
   }
 
@@ -297,14 +303,38 @@ function ShopTab({ cartItems, onAddToCart, onUpdateQty, onClearCart }) {
                 ))}
               </div>
               <div style={{ padding: '12px 18px', borderTop: '1px solid #f1f5f9' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 12 }}>
-                  <span style={{ fontSize: 13, fontWeight: 700, color: '#0f172a' }}>Total</span>
-                  <span style={{ fontSize: 13, fontWeight: 800, color: BRAND }}>£{cartTotal.toFixed(2)}</span>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: '#64748b', marginBottom: 4 }}>
+                  <span>Subtotal</span><span>£{cartSubtotal.toFixed(2)}</span>
                 </div>
-                {success
-                  ? <div style={{ textAlign: 'center', color: '#16a34a', fontWeight: 700, fontSize: 13 }}>✓ Order placed!</div>
-                  : <button onClick={placeOrder} disabled={placing} style={{ width: '100%', padding: '10px 0', borderRadius: 9, border: 'none', background: '#0f172a', color: '#fff', fontWeight: 800, fontSize: 13, cursor: 'pointer', fontFamily: 'inherit' }}>{placing ? 'Placing…' : 'Place Order'}</button>
-                }
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: '#64748b', marginBottom: 8, paddingBottom: 8, borderBottom: '1px solid #f1f5f9' }}>
+                  <span>Shipping</span><span>{cartShipping === 0 ? 'Free' : `£${cartShipping.toFixed(2)}`}</span>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
+                  <span style={{ fontSize: 13, fontWeight: 800, color: '#0f172a' }}>Total</span>
+                  <span style={{ fontSize: 13, fontWeight: 900, color: BRAND }}>£{cartTotal.toFixed(2)}</span>
+                </div>
+                {cartToFree > 0 ? (
+                  <div style={{ fontSize: 11, color: '#166534', background: '#f0fdf4', borderRadius: 6, padding: '5px 8px', marginBottom: 8, fontWeight: 600 }}>
+                    Add £{cartToFree.toFixed(2)} more for free shipping
+                  </div>
+                ) : (
+                  <div style={{ fontSize: 11, color: '#166534', background: '#f0fdf4', borderRadius: 6, padding: '5px 8px', marginBottom: 8, fontWeight: 700 }}>
+                    ✓ Free shipping
+                  </div>
+                )}
+                <button onClick={startCheckout} disabled={placing} style={{ width: '100%', padding: '10px 0', borderRadius: 9, border: 'none', background: '#0f172a', color: '#fff', fontWeight: 800, fontSize: 13, cursor: 'pointer', fontFamily: 'inherit' }}>
+                  {placing ? 'Loading…' : `Checkout £${cartTotal.toFixed(2)}`}
+                </button>
+                {stripeSession && (
+                  <StripeCheckoutModal
+                    clientSecret={stripeSession.clientSecret}
+                    subtotal={stripeSession.subtotal}
+                    shipping={stripeSession.shipping}
+                    total={stripeSession.total}
+                    onSuccess={async () => { setStripeSession(null); await onClearCart() }}
+                    onClose={() => setStripeSession(null)}
+                  />
+                )}
               </div>
             </>
           )}
@@ -332,13 +362,93 @@ function ProductCard({ product: p, onAdd }) {
   )
 }
 
+// ── Stripe Payment Modal ──────────────────────────────────────────────────────
+
+function StripePaymentForm({ subtotal, shipping, total, onSuccess, onClose }) {
+  const stripe   = useStripe()
+  const elements = useElements()
+  const [paying, setPaying] = useState(false)
+  const [error,  setError]  = useState(null)
+  const [done,   setDone]   = useState(false)
+
+  async function handlePay(e) {
+    e.preventDefault()
+    if (!stripe || !elements) return
+    setPaying(true)
+    setError(null)
+    const { error: stripeErr } = await stripe.confirmPayment({
+      elements,
+      confirmParams: { return_url: window.location.href },
+      redirect: 'if_required',
+    })
+    if (stripeErr) {
+      setError(stripeErr.message)
+      setPaying(false)
+    } else {
+      setDone(true)
+      setTimeout(() => onSuccess(), 1800)
+    }
+  }
+
+  const overlay = { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999, padding: 16 }
+  const box     = { background: '#fff', borderRadius: 16, padding: 28, width: 480, maxHeight: '90vh', overflowY: 'auto', boxShadow: '0 20px 60px rgba(0,0,0,0.25)' }
+
+  if (done) return (
+    <div style={overlay}><div style={{ ...box, textAlign: 'center', padding: '48px 32px' }}>
+      <div style={{ fontSize: 52, marginBottom: 12 }}>✓</div>
+      <h2 style={{ fontSize: 18, fontWeight: 800, color: '#16a34a', margin: '0 0 8px' }}>Payment successful!</h2>
+      <p style={{ fontSize: 14, color: '#64748b', margin: 0 }}>Your order is being processed. Redirecting to Orders…</p>
+    </div></div>
+  )
+
+  return (
+    <div style={overlay}>
+      <div style={box}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+          <h2 style={{ fontSize: 17, fontWeight: 900, color: '#0f172a', margin: 0 }}>Confirm Payment</h2>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', fontSize: 22, cursor: 'pointer', color: '#94a3b8' }}>×</button>
+        </div>
+
+        {/* Order summary */}
+        <div style={{ background: '#f8fafc', borderRadius: 10, padding: '14px 16px', marginBottom: 20 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, color: '#64748b', marginBottom: 6 }}>
+            <span>Subtotal</span><span>£{subtotal.toFixed(2)}</span>
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, color: '#64748b', marginBottom: 8, paddingBottom: 8, borderBottom: '1px solid #e2e8f0' }}>
+            <span>Shipping</span><span>{shipping === 0 ? 'Free' : `£${shipping.toFixed(2)}`}</span>
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 16, fontWeight: 900, color: BRAND }}>
+            <span>Total</span><span>£{total.toFixed(2)}</span>
+          </div>
+        </div>
+
+        <form onSubmit={handlePay}>
+          <PaymentElement />
+          {error && <div style={{ color: '#ef4444', fontSize: 13, marginTop: 10, padding: '8px 12px', background: '#fef2f2', borderRadius: 6 }}>{error}</div>}
+          <button type="submit" disabled={paying || !stripe} style={{ width: '100%', marginTop: 16, padding: '13px 0', borderRadius: 10, border: 'none', background: '#0f172a', color: '#fff', fontWeight: 800, fontSize: 14, cursor: paying ? 'wait' : 'pointer', fontFamily: 'inherit' }}>
+            {paying ? 'Processing…' : `Pay £${total.toFixed(2)}`}
+          </button>
+        </form>
+      </div>
+    </div>
+  )
+}
+
+function StripeCheckoutModal({ clientSecret, subtotal, shipping, total, onSuccess, onClose }) {
+  if (!clientSecret) return null
+  return (
+    <Elements stripe={stripePromise} options={{ clientSecret, appearance: { theme: 'stripe' } }}>
+      <StripePaymentForm subtotal={subtotal} shipping={shipping} total={total} onSuccess={onSuccess} onClose={onClose} />
+    </Elements>
+  )
+}
+
 // ── Cart Tab ──────────────────────────────────────────────────────────────────
 
 function CartTab({ cartItems, onUpdateQty, onRemove, onClearCart, onOrderPlaced, onGoToOrders }) {
-  const [placing, setPlacing] = useState(false)
-  const [success, setSuccess] = useState(false)
+  const [loadingCheckout, setLoadingCheckout] = useState(false)
+  const [stripeSession,   setStripeSession]   = useState(null) // { clientSecret, subtotal, shipping, total }
 
-  // Enrich from joined shop_products data in cartItems
   const enriched = cartItems.map(ci => {
     const p = ci.shop_products || {}
     return {
@@ -361,29 +471,25 @@ function CartTab({ cartItems, onUpdateQty, onRemove, onClearCart, onOrderPlaced,
     return acc
   }, {})
 
-  const total = enriched.reduce((s, i) => s + i.qty * parseFloat(i.price || 0), 0)
+  const subtotal = enriched.reduce((s, i) => s + i.qty * parseFloat(i.price || 0), 0)
+  const shipping  = calcShipping(subtotal)
+  const total     = subtotal + shipping
+  const toFree    = FREE_SHIPPING_THRESHOLD - subtotal
 
-  async function checkout() {
+  async function startCheckout() {
     if (!enriched.length) return
-    setPlacing(true)
+    setLoadingCheckout(true)
     try {
-      const items = enriched.map(i => ({
-        product_id:  i.product_id,
-        qty:         i.qty,
-        unit_price:  i.price,
-        supplier_id: i.supplier_id || null,
-      }))
-      await axios.post(`${API}/api/shop/orders`, { items })
-      setSuccess(true)
-      await onOrderPlaced()
-      setTimeout(() => { onGoToOrders() }, 1500)
+      const { data } = await axios.post(`${API}/api/shop/cart/checkout`)
+      setStripeSession(data)
     } catch (err) {
       alert('Checkout failed: ' + (err.response?.data?.error || err.message))
-      setPlacing(false)
+    } finally {
+      setLoadingCheckout(false)
     }
   }
 
-  if (!enriched.length && !success) {
+  if (!enriched.length) {
     return (
       <div style={{ textAlign: 'center', padding: '60px 0', color: '#94a3b8' }}>
         <div style={{ fontSize: 36, marginBottom: 12 }}>🛒</div>
@@ -395,10 +501,19 @@ function CartTab({ cartItems, onUpdateQty, onRemove, onClearCart, onOrderPlaced,
 
   return (
     <div style={{ maxWidth: 660 }}>
-      {success && (
-        <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 10, padding: '14px 18px', marginBottom: 16, color: '#166534', fontWeight: 700, fontSize: 13 }}>
-          ✓ Order placed! Redirecting to Orders…
-        </div>
+      {stripeSession && (
+        <StripeCheckoutModal
+          clientSecret={stripeSession.clientSecret}
+          subtotal={stripeSession.subtotal}
+          shipping={stripeSession.shipping}
+          total={stripeSession.total}
+          onSuccess={async () => {
+            setStripeSession(null)
+            await onOrderPlaced()
+            setTimeout(() => onGoToOrders(), 400)
+          }}
+          onClose={() => setStripeSession(null)}
+        />
       )}
 
       {Object.entries(bySupplier).map(([supplier, items]) => (
@@ -427,15 +542,32 @@ function CartTab({ cartItems, onUpdateQty, onRemove, onClearCart, onOrderPlaced,
         </div>
       ))}
 
-      <div style={{ ...card, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <div>
-          <div style={{ fontSize: 11, color: '#64748b', fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.6 }}>Order total</div>
-          <div style={{ fontSize: 22, fontWeight: 900, color: BRAND }}>£{total.toFixed(2)}</div>
+      <div style={{ ...card }}>
+        {/* Shipping breakdown */}
+        <div style={{ marginBottom: 14 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, color: '#64748b', marginBottom: 4 }}>
+            <span>Subtotal</span><span>£{subtotal.toFixed(2)}</span>
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, color: '#64748b', marginBottom: 8, paddingBottom: 10, borderBottom: '1px solid #f1f5f9' }}>
+            <span>Shipping</span><span>{shipping === 0 ? '✓ Free' : `£${shipping.toFixed(2)}`}</span>
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 18, fontWeight: 900, color: BRAND }}>
+            <span>Total</span><span>£{total.toFixed(2)}</span>
+          </div>
+          {toFree > 0 ? (
+            <div style={{ marginTop: 10, padding: '7px 12px', background: '#f0fdf4', borderRadius: 7, fontSize: 12, color: '#166534', fontWeight: 600 }}>
+              Add <strong>£{toFree.toFixed(2)}</strong> more for free shipping
+            </div>
+          ) : (
+            <div style={{ marginTop: 10, padding: '7px 12px', background: '#f0fdf4', borderRadius: 7, fontSize: 12, color: '#166534', fontWeight: 700 }}>
+              ✓ Free shipping
+            </div>
+          )}
         </div>
         <div style={{ display: 'flex', gap: 10 }}>
           <button onClick={() => onClearCart()} style={{ ...btnCancel, padding: '10px 18px' }}>Clear cart</button>
-          <button onClick={checkout} disabled={placing || success} style={{ ...btnSave, padding: '10px 28px', fontSize: 13 }}>
-            {placing ? 'Placing…' : 'Checkout →'}
+          <button onClick={startCheckout} disabled={loadingCheckout} style={{ ...btnSave, flex: 1, padding: '10px 0', fontSize: 13 }}>
+            {loadingCheckout ? 'Loading…' : `Checkout £${total.toFixed(2)} →`}
           </button>
         </div>
       </div>
@@ -697,8 +829,15 @@ function OrdersTab({ isAdmin }) {
                   {new Date(order.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}
                 </span>
               </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                 <span style={{ fontWeight: 800, color: BRAND, fontSize: 14 }}>£{parseFloat(order.total || 0).toFixed(2)}</span>
+                {order.status === 'cancelled' && (
+                  order.refund_id
+                    ? <span style={{ background: '#dcfce7', color: '#166534', borderRadius: 20, padding: '2px 8px', fontSize: 11, fontWeight: 700 }}>Refunded</span>
+                    : order.stripe_payment_intent_id
+                      ? <span style={{ background: '#fef9c3', color: '#854d0e', borderRadius: 20, padding: '2px 8px', fontSize: 11, fontWeight: 700 }}>Refund pending</span>
+                      : null
+                )}
                 {isAdmin && canCancel(order) && (
                   <button onClick={() => markProcessing(order.id)} style={{ ...btnSave, padding: '4px 10px', fontSize: 11 }}>
                     Mark Processing
@@ -777,9 +916,36 @@ function OrdersTab({ isAdmin }) {
               </div>
             ))}
 
-            <div style={{ display: 'flex', justifyContent: 'space-between', padding: '12px 0', borderTop: '2px solid #e2e8f0', marginTop: 4 }}>
-              <span style={{ fontWeight: 800, fontSize: 14 }}>Total</span>
-              <span style={{ fontWeight: 900, fontSize: 16, color: BRAND }}>£{parseFloat(viewOrder.total || 0).toFixed(2)}</span>
+            <div style={{ borderTop: '2px solid #e2e8f0', marginTop: 4, paddingTop: 12 }}>
+              {viewOrder.subtotal > 0 && (
+                <>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, color: '#64748b', marginBottom: 4 }}>
+                    <span>Subtotal</span><span>£{parseFloat(viewOrder.subtotal || 0).toFixed(2)}</span>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, color: '#64748b', marginBottom: 8, paddingBottom: 8, borderBottom: '1px solid #f1f5f9' }}>
+                    <span>Shipping</span><span>{parseFloat(viewOrder.shipping_cost || 0) === 0 ? 'Free' : `£${parseFloat(viewOrder.shipping_cost || 0).toFixed(2)}`}</span>
+                  </div>
+                </>
+              )}
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
+                <span style={{ fontWeight: 800, fontSize: 14 }}>Total</span>
+                <span style={{ fontWeight: 900, fontSize: 16, color: BRAND }}>£{parseFloat(viewOrder.total || 0).toFixed(2)}</span>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, color: '#64748b', marginBottom: 4 }}>
+                <span>Payment</span>
+                <span>{viewOrder.stripe_payment_intent_id ? 'Card' : 'Manual'}</span>
+              </div>
+              {viewOrder.status === 'cancelled' && (
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, marginTop: 6 }}>
+                  <span style={{ color: '#64748b' }}>Refund</span>
+                  {viewOrder.refund_id
+                    ? <span style={{ background: '#dcfce7', color: '#166534', borderRadius: 20, padding: '2px 8px', fontSize: 11, fontWeight: 700 }}>Refunded</span>
+                    : viewOrder.stripe_payment_intent_id
+                      ? <span style={{ background: '#fef9c3', color: '#854d0e', borderRadius: 20, padding: '2px 8px', fontSize: 11, fontWeight: 700 }}>Pending</span>
+                      : <span style={{ color: '#94a3b8', fontSize: 12 }}>N/A</span>
+                  }
+                </div>
+              )}
             </div>
             <button onClick={() => setViewOrder(null)} style={{ ...btnSave, width: '100%', padding: '10px 0', marginTop: 16, fontSize: 13 }}>Close</button>
           </div>
