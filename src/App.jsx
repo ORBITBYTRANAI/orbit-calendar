@@ -33,6 +33,12 @@ function fmtTime(iso, timezone, opts) {
   return new Intl.DateTimeFormat('en-GB', { timeZone: timezone || 'Europe/London', ...opts }).format(new Date(iso))
 }
 
+// Convert a UTC ISO string (from Supabase) to a local naked ISO string for FullCalendar timeZone="local"
+function toLocalISO(isoStr, tz) {
+  if (!isoStr) return null
+  return new Date(isoStr).toLocaleString('sv-SE', { timeZone: tz || 'Europe/London' }).replace(' ', 'T')
+}
+
 const DEFAULT_HOURS = DAYS.map((d, i) => ({
  day: d,
  open: i < 6,
@@ -1296,8 +1302,8 @@ function MainApp({ salon, onLogout }) {
      id: b.id,
      resourceId: b.technician_id,
      title,
-     start: b.start_time,
-     end: b.end_time,
+     start: toLocalISO(b.start_time, salon?.timezone),
+     end: toLocalISO(b.end_time, salon?.timezone),
      backgroundColor: color,
      borderColor: color,
      textColor: isVisualiser ? '#fff' : '#1e293b',
@@ -1309,8 +1315,8 @@ function MainApp({ salon, onLogout }) {
    id: 'block_' + bl.id,
    resourceId: bl.technician_id,
    title: bl.reason || 'Blocked',
-   start: bl.start_time,
-   end: bl.end_time,
+   start: toLocalISO(bl.start_time, salon?.timezone),
+   end: toLocalISO(bl.end_time, salon?.timezone),
    backgroundColor: 'transparent',
    borderColor: '#94a3b8',
    textColor: '#64748b',
@@ -1318,7 +1324,7 @@ function MainApp({ salon, onLogout }) {
    extendedProps: { isBlock: true, blockId: bl.id, reason: bl.reason, start_time: bl.start_time, end_time: bl.end_time },
  }))
  return [...bookingEvents, ...blockEvents]
-}, [bookings, blocks, services])
+}, [bookings, blocks, services, salon])
 
 
  // Pending highlight background event for mobile two-tap booking
@@ -1676,14 +1682,17 @@ await axios.put(API + '/api/bookings/' + editingId, {
  }
 
  const handleDrop = useCallback(async (info) => {
- const id = info.event.id, start = info.event.startStr, end = info.event.endStr
+ const id = info.event.id
+ const start = new Date(info.event.startStr).toISOString()
+ const end = new Date(info.event.endStr).toISOString()
  const techId = info.event.getResources()[0]?.id
  setBookings(prev => prev.map(b => b.id !== id ? b : { ...b, start_time: start, end_time: end, technician_id: techId }))
  await axios.put(API + '/api/bookings/' + id, { start_time: start, end_time: end, technician_id: techId })
  }, [])
 
  const handleResize = useCallback(async (info) => {
- const id = info.event.id, end = info.event.endStr
+ const id = info.event.id
+ const end = new Date(info.event.endStr).toISOString()
  setBookings(prev => prev.map(b => b.id !== id ? b : { ...b, end_time: end }))
  await axios.put(API + '/api/bookings/' + id, { end_time: end })
  }, [])
@@ -1945,15 +1954,15 @@ await axios.put(API + '/api/bookings/' + editingId, {
  allDaySlot={false}
  height="auto"
  nowIndicator={true}
- timeZone={salon?.timezone || 'local'}
+ timeZone="local"
  headerToolbar={isMobile
    ? { left:'prev,next today', center:'title', right:'' }
    : { left:'prev,next today', center:'title', right:'resourceTimeGridDay,dayGridMonth' }}
  eventContent={(info) => {
    const bk = info.event.extendedProps
    if (bk.isBlock) {
-     const start = bk.start_time ? fmtTime(bk.start_time, salon?.timezone, { hour:'2-digit', minute:'2-digit' }) : ''
-     const end   = bk.end_time   ? fmtTime(bk.end_time,   salon?.timezone, { hour:'2-digit', minute:'2-digit' }) : ''
+     const start = info.event.startStr?.slice(11, 16) || ''
+     const end   = info.event.endStr?.slice(11, 16)   || ''
      return (
        <div style={{ height:'100%', background:'repeating-linear-gradient(45deg, rgba(100,116,139,0.18) 0px, rgba(100,116,139,0.18) 4px, transparent 4px, transparent 12px)', border:'1px solid #94a3b8', borderRadius:4, padding:'3px 6px', display:'flex', flexDirection:'column', justifyContent:'flex-start', overflow:'hidden' }}>
          <span style={{ fontSize:'0.8em', fontWeight:700, color:'#475569', whiteSpace:'nowrap' }}>Blocked</span>
@@ -1962,8 +1971,8 @@ await axios.put(API + '/api/bookings/' + editingId, {
        </div>
      )
    }
-   const startTime = info.event.startStr ? fmtTime(info.event.startStr, salon?.timezone, { hour:'2-digit', minute:'2-digit' }) : ''
-   const endTime   = info.event.endStr   ? fmtTime(info.event.endStr,   salon?.timezone, { hour:'2-digit', minute:'2-digit' }) : ''
+   const startTime = info.event.startStr?.slice(11, 16) || ''
+   const endTime   = info.event.endStr?.slice(11, 16)   || ''
    const name = bk.customers?.full_name || 'Guest'
    const svc  = bk.services?.name || ''
    const timeRange = startTime && endTime ? `${startTime} - ${endTime}` : startTime
