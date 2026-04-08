@@ -55,11 +55,14 @@ const TD = ({ children, style }) => (
   <td style={{ padding: '10px 14px', fontSize: 13, color: '#0f172a', borderBottom: '1px solid #f1f5f9', verticalAlign: 'middle', ...style }}>{children}</td>
 )
 
-const statusBadge = s => ({
-  padding: '3px 9px', borderRadius: 6, fontSize: 11, fontWeight: 700,
-  background: s === 'processing' ? '#fef9c3' : s === 'delivered' ? '#dcfce7' : s === 'cancelled' ? '#fee2e2' : '#f1f5f9',
-  color:      s === 'processing' ? '#854d0e'  : s === 'delivered' ? '#166534' : s === 'cancelled' ? '#991b1b' : '#475569',
-})
+const statusBadge = s => {
+  let bg = '#f1f5f9', color = '#64748b'
+  if (s === 'paid')       { bg = '#dbeafe'; color = '#1e40af' }
+  else if (s === 'processing') { bg = '#fef9c3'; color = '#854d0e' }
+  else if (s === 'shipped')    { bg = '#f3e8ff'; color = '#6b21a8' }
+  else if (s === 'delivered')  { bg = '#dcfce7'; color = '#166534' }
+  return { borderRadius: 20, padding: '3px 10px', fontSize: 11, fontWeight: 800, display: 'inline-block', background: bg, color }
+}
 
 // ── Main ShopView ─────────────────────────────────────────────────────────────
 
@@ -793,7 +796,7 @@ function OrdersTab({ isAdmin }) {
 
   useEffect(() => { loadOrders() }, [loadOrders])
 
-  const canCancel = o => o.status === 'pending' || o.status === 'paid'
+  const canCancel = o => ['pending', 'paid', 'processing'].includes(o.status)
 
   async function cancelOrder(order) {
     if (!window.confirm('Cancel this order? Stock levels will be restored.')) return
@@ -802,15 +805,6 @@ function OrdersTab({ isAdmin }) {
       loadOrders()
     } catch (err) {
       alert(err.response?.data?.error || 'Could not cancel order.')
-    }
-  }
-
-  async function markProcessing(orderId) {
-    try {
-      await axios.post(`${API}/api/shop/admin/orders/${orderId}/mark-processing`)
-      loadOrders()
-    } catch (err) {
-      alert(err.response?.data?.error || 'Could not update.')
     }
   }
 
@@ -837,11 +831,6 @@ function OrdersTab({ isAdmin }) {
                     : order.stripe_payment_intent_id
                       ? <span style={{ background: '#fef9c3', color: '#854d0e', borderRadius: 20, padding: '2px 8px', fontSize: 11, fontWeight: 700 }}>Refund pending</span>
                       : null
-                )}
-                {isAdmin && canCancel(order) && (
-                  <button onClick={() => markProcessing(order.id)} style={{ ...btnSave, padding: '4px 10px', fontSize: 11 }}>
-                    Mark Processing
-                  </button>
                 )}
                 <button onClick={() => setViewOrder(order)} style={{ ...btnEdit, padding: '4px 12px' }}>View</button>
                 {canCancel(order)
@@ -885,10 +874,12 @@ function OrdersTab({ isAdmin }) {
 
             <div style={{ display: 'flex', gap: 10, marginBottom: 20, alignItems: 'center' }}>
               <span style={statusBadge(viewOrder.status)}>{viewOrder.status}</span>
-              {viewOrder.tracking_number && (
-                <span style={{ fontSize: 12, color: '#64748b', fontWeight: 600 }}>Tracking: {viewOrder.tracking_number}</span>
-              )}
             </div>
+            {viewOrder.tracking_number && (
+              <div style={{ background: '#f3e8ff', border: '1px solid #e9d5ff', borderRadius: 8, padding: '8px 14px', fontSize: 13, color: '#6b21a8', fontWeight: 700, marginBottom: 16 }}>
+                Tracking: <span style={{ fontFamily: 'monospace', fontSize: 14 }}>{viewOrder.tracking_number}</span>
+              </div>
+            )}
 
             {Object.entries(
               (viewOrder.shop_order_items || []).reduce((acc, item) => {
@@ -955,23 +946,332 @@ function OrdersTab({ isAdmin }) {
   )
 }
 
+// ── Admin: Order lifecycle controls ───────────────────────────────────────────
+
+function OrderControls({ order, onUpdated, compact = false }) {
+  const [trackingInput, setTrackingInput] = useState('')
+  const [showTrackingForm, setShowTrackingForm] = useState(false)
+  const [loading, setLoading] = useState(false)
+
+  async function updateStatus(status, tracking_number) {
+    setLoading(true)
+    try {
+      await axios.patch(`${API}/api/shop/admin/orders/${order.id}/status`, { status, tracking_number })
+      onUpdated()
+      setShowTrackingForm(false)
+    } catch (err) {
+      alert(err.response?.data?.error || err.message)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const s = order.status
+
+  if (s === 'paid') return (
+    <button disabled={loading} onClick={() => updateStatus('processing')}
+      style={{ ...btnSave, padding: compact ? '4px 10px' : '7px 14px', fontSize: compact ? 11 : 12 }}>
+      {loading ? '…' : 'Mark Processing'}
+    </button>
+  )
+
+  if (s === 'processing') {
+    if (showTrackingForm) return (
+      <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+        <input
+          value={trackingInput}
+          onChange={e => setTrackingInput(e.target.value)}
+          placeholder="Tracking number"
+          style={{ ...inp, width: 160, padding: '5px 10px', fontSize: 12 }}
+          onKeyDown={e => e.key === 'Enter' && trackingInput.trim() && updateStatus('shipped', trackingInput)}
+          autoFocus
+        />
+        <button disabled={loading || !trackingInput.trim()} onClick={() => updateStatus('shipped', trackingInput)}
+          style={{ ...btnSave, padding: compact ? '4px 10px' : '7px 14px', fontSize: compact ? 11 : 12, background: '#6b21a8' }}>
+          {loading ? '…' : 'Ship'}
+        </button>
+        <button onClick={() => setShowTrackingForm(false)} style={{ ...btnCancel, padding: compact ? '4px 8px' : '7px 12px', fontSize: compact ? 11 : 12 }}>×</button>
+      </div>
+    )
+    return (
+      <button onClick={() => setShowTrackingForm(true)}
+        style={{ ...btnSave, padding: compact ? '4px 10px' : '7px 14px', fontSize: compact ? 11 : 12, background: '#6b21a8' }}>
+        Mark Shipped
+      </button>
+    )
+  }
+
+  if (s === 'shipped') return (
+    <button disabled={loading} onClick={() => updateStatus('delivered')}
+      style={{ ...btnSave, padding: compact ? '4px 10px' : '7px 14px', fontSize: compact ? 11 : 12, background: '#16a34a' }}>
+      {loading ? '…' : 'Mark Delivered'}
+    </button>
+  )
+
+  return null
+}
+
+// ── Admin: Orders across all salons ──────────────────────────────────────────
+
+function AdminOrdersSection() {
+  const [orders, setOrders] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [viewOrder, setViewOrder] = useState(null)
+
+  const load = useCallback(() => {
+    setLoading(true)
+    axios.get(`${API}/api/shop/admin/orders`)
+      .then(r => setOrders(r.data))
+      .catch(console.error)
+      .finally(() => setLoading(false))
+  }, [])
+
+  useEffect(() => { load() }, [load])
+
+  if (loading) return <p style={{ color: '#94a3b8', fontSize: 13 }}>Loading orders…</p>
+  if (!orders.length) return <p style={{ color: '#94a3b8', fontSize: 13 }}>No orders yet.</p>
+
+  return (
+    <>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+        {orders.map(order => {
+          const salonName = order.salons?.name || 'Unknown salon'
+          const shortId = order.id.substring(0, 8).toUpperCase()
+          return (
+            <div key={order.id} style={{ ...card }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8, flexWrap: 'wrap', gap: 8 }}>
+                <div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                    <span style={statusBadge(order.status)}>{order.status}</span>
+                    <span style={{ fontSize: 13, fontWeight: 800, color: '#0f172a' }}>{salonName}</span>
+                    <span style={{ fontSize: 11, fontFamily: 'monospace', color: '#94a3b8' }}>#{shortId}</span>
+                  </div>
+                  <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 4 }}>
+                    {new Date(order.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                    {' · '}£{parseFloat(order.total || 0).toFixed(2)}
+                  </div>
+                </div>
+                <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+                  <OrderControls order={order} onUpdated={load} compact />
+                  <button onClick={() => setViewOrder(order)} style={{ ...btnEdit, padding: '4px 12px', fontSize: 11 }}>View</button>
+                </div>
+              </div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                {(order.shop_order_items || []).map((item, i) => {
+                  const p = item.shop_products || {}
+                  return (
+                    <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 5, background: '#f8fafc', borderRadius: 6, padding: '4px 8px', fontSize: 11 }}>
+                      <span>{p.emoji}</span>
+                      <span style={{ fontWeight: 700 }}>{p.name}{p.variant ? ` (${p.variant})` : ''}</span>
+                      {p.sku && <span style={{ fontFamily: 'monospace', color: '#94a3b8' }}>{p.sku}</span>}
+                      <span style={{ color: '#64748b' }}>× {item.qty}</span>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          )
+        })}
+      </div>
+
+      {/* Admin order detail modal */}
+      {viewOrder && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999, padding: 16 }}>
+          <div style={{ background: '#fff', borderRadius: 16, padding: 28, width: 520, maxHeight: '90vh', overflowY: 'auto', boxShadow: '0 20px 60px rgba(0,0,0,0.25)' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16 }}>
+              <div>
+                <h2 style={{ fontSize: 17, fontWeight: 900, color: '#0f172a', margin: 0 }}>Order #{viewOrder.id.substring(0, 8).toUpperCase()}</h2>
+                <div style={{ fontSize: 12, color: '#64748b', marginTop: 2 }}>{viewOrder.salons?.name}</div>
+              </div>
+              <button onClick={() => setViewOrder(null)} style={{ background: 'none', border: 'none', fontSize: 22, cursor: 'pointer', color: '#94a3b8' }}>×</button>
+            </div>
+            <div style={{ marginBottom: 16, display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+              <span style={statusBadge(viewOrder.status)}>{viewOrder.status}</span>
+              <OrderControls order={viewOrder} onUpdated={() => { load(); setViewOrder(null) }} />
+            </div>
+            {viewOrder.tracking_number && (
+              <div style={{ background: '#f3e8ff', border: '1px solid #e9d5ff', borderRadius: 8, padding: '10px 14px', marginBottom: 16, fontSize: 13, color: '#6b21a8', fontWeight: 700 }}>
+                Tracking: <span style={{ fontFamily: 'monospace', fontSize: 14 }}>{viewOrder.tracking_number}</span>
+              </div>
+            )}
+            {viewOrder.salons?.shipping_address && (
+              <div style={{ background: '#f8fafc', borderRadius: 8, padding: '10px 14px', marginBottom: 16, fontSize: 13 }}>
+                <div style={{ fontSize: 11, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: .6, marginBottom: 4 }}>Ship to</div>
+                <div style={{ color: '#0f172a', whiteSpace: 'pre-line' }}>{viewOrder.salons.shipping_address}</div>
+              </div>
+            )}
+            {(viewOrder.shop_order_items || []).map((item, i) => {
+              const p = item.shop_products || {}
+              return (
+                <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 0', borderBottom: '1px solid #f1f5f9' }}>
+                  <span style={{ fontSize: 20 }}>{p.emoji || '📦'}</span>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontWeight: 700, fontSize: 13 }}>{p.name}{p.variant ? ` (${p.variant})` : ''}</div>
+                    {p.sku && <div style={{ fontSize: 11, fontFamily: 'monospace', color: '#94a3b8' }}>{p.sku}</div>}
+                    <div style={{ fontSize: 12, color: '#64748b' }}>£{parseFloat(item.unit_price || 0).toFixed(2)} × {item.qty}</div>
+                  </div>
+                  <div style={{ fontWeight: 800, fontSize: 13 }}>£{(parseFloat(item.unit_price || 0) * item.qty).toFixed(2)}</div>
+                </div>
+              )
+            })}
+            <div style={{ borderTop: '2px solid #e2e8f0', marginTop: 8, paddingTop: 12, display: 'flex', justifyContent: 'space-between', fontSize: 15, fontWeight: 900, color: BRAND }}>
+              <span>Total</span><span>£{parseFloat(viewOrder.total || 0).toFixed(2)}</span>
+            </div>
+            <button onClick={() => setViewOrder(null)} style={{ ...btnSave, width: '100%', padding: '10px 0', marginTop: 16, fontSize: 13 }}>Close</button>
+          </div>
+        </div>
+      )}
+    </>
+  )
+}
+
+// ── Admin: Packing view ───────────────────────────────────────────────────────
+
+const PRINT_STYLE = `
+@media print {
+  body * { visibility: hidden !important; }
+  #packing-list, #packing-list * { visibility: visible !important; }
+  #packing-list { position: fixed; top: 0; left: 0; width: 100%; padding: 24px; }
+  .no-print { display: none !important; }
+  .packing-card { break-inside: avoid; margin-bottom: 24px; border: 1px solid #e2e8f0; border-radius: 8px; padding: 16px; }
+  .packing-card-header { font-size: 13px; font-weight: 700; margin-bottom: 8px; }
+  .packing-item { font-size: 12px; padding: 4px 0; border-bottom: 1px solid #f1f5f9; }
+}
+`
+
+function PackingSection() {
+  const [orders, setOrders] = useState([])
+  const [loading, setLoading] = useState(true)
+
+  const load = useCallback(() => {
+    setLoading(true)
+    axios.get(`${API}/api/shop/admin/orders/packing`)
+      .then(r => setOrders(r.data))
+      .catch(console.error)
+      .finally(() => setLoading(false))
+  }, [])
+
+  useEffect(() => { load() }, [load])
+
+  if (loading) return <p style={{ color: '#94a3b8', fontSize: 13 }}>Loading packing queue…</p>
+
+  return (
+    <div>
+      <style>{PRINT_STYLE}</style>
+      <div className="no-print" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+        <div>
+          <h2 style={{ fontSize: 15, fontWeight: 800, color: '#0f172a', margin: 0 }}>Packing Queue</h2>
+          <div style={{ fontSize: 12, color: '#64748b', marginTop: 2 }}>{orders.length} order{orders.length !== 1 ? 's' : ''} to pack</div>
+        </div>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button onClick={load} style={{ ...btnCancel, padding: '7px 14px', fontSize: 12 }}>Refresh</button>
+          <button onClick={() => window.print()} style={{ ...btnSave, padding: '7px 16px', fontSize: 12 }}>🖨 Print</button>
+        </div>
+      </div>
+
+      {orders.length === 0 ? (
+        <div style={{ textAlign: 'center', padding: '48px 0', color: '#94a3b8' }}>
+          <div style={{ fontSize: 36, marginBottom: 8 }}>📦</div>
+          <div style={{ fontSize: 14, fontWeight: 700, color: '#0f172a', marginBottom: 4 }}>All packed!</div>
+          <div style={{ fontSize: 13 }}>No paid or processing orders.</div>
+        </div>
+      ) : (
+        <div id="packing-list" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+          {orders.map(order => {
+            const salonName = order.salons?.name || 'Unknown salon'
+            const shortId = order.id.substring(0, 8).toUpperCase()
+            return (
+              <div key={order.id} className="packing-card" style={{ ...card, borderLeft: `4px solid ${order.status === 'paid' ? '#3b82f6' : '#f59e0b'}` }}>
+                {/* Header */}
+                <div className="packing-card-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 10, flexWrap: 'wrap', gap: 8 }}>
+                  <div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                      <span style={statusBadge(order.status)}>{order.status}</span>
+                      <span style={{ fontSize: 15, fontWeight: 800, color: '#0f172a' }}>{salonName}</span>
+                      <span style={{ fontSize: 11, fontFamily: 'monospace', color: '#94a3b8' }}>#{shortId}</span>
+                    </div>
+                    <div style={{ fontSize: 12, color: '#64748b', marginTop: 4 }}>
+                      {new Date(order.created_at).toLocaleString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                      {' · '}£{parseFloat(order.total || 0).toFixed(2)}
+                    </div>
+                  </div>
+                  <div className="no-print">
+                    <OrderControls order={order} onUpdated={load} compact />
+                  </div>
+                </div>
+
+                {/* Shipping address */}
+                <div style={{ fontSize: 12, background: '#f8fafc', borderRadius: 6, padding: '8px 10px', marginBottom: 10 }}>
+                  <span style={{ fontWeight: 700, color: '#64748b', textTransform: 'uppercase', fontSize: 10, letterSpacing: .6 }}>Ship to: </span>
+                  <span style={{ color: order.salons?.shipping_address ? '#0f172a' : '#94a3b8', whiteSpace: 'pre-line' }}>
+                    {order.salons?.shipping_address || 'No address on file'}
+                  </span>
+                </div>
+
+                {/* Items */}
+                <div>
+                  {(order.shop_order_items || []).map((item, i) => {
+                    const p = item.shop_products || {}
+                    return (
+                      <div key={i} className="packing-item" style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '7px 0', borderBottom: '1px solid #f1f5f9' }}>
+                        <span style={{ fontSize: 18 }}>{p.emoji || '📦'}</span>
+                        <div style={{ flex: 1 }}>
+                          <span style={{ fontWeight: 700, fontSize: 13 }}>{p.name}</span>
+                          {p.variant && <span style={{ fontSize: 12, color: '#64748b' }}> ({p.variant})</span>}
+                          {p.sku && <span style={{ fontSize: 11, fontFamily: 'monospace', color: '#94a3b8', marginLeft: 6 }}>{p.sku}</span>}
+                        </div>
+                        <div style={{ fontWeight: 900, fontSize: 15, minWidth: 28, textAlign: 'right', color: '#0f172a' }}>× {item.qty}</div>
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ── Admin Tab ─────────────────────────────────────────────────────────────────
 
 function AdminTab() {
+  const [adminTab, setAdminTab] = useState('orders')
   const [suppliers, setSuppliers] = useState([])
   const [products,  setProducts]  = useState([])
 
   const loadSuppliers = useCallback(() =>
     axios.get(`${API}/api/shop/suppliers`).then(r => setSuppliers(r.data)).catch(console.error), [])
-  const loadProducts  = useCallback(() =>
+  const loadProducts = useCallback(() =>
     axios.get(`${API}/api/shop/products`).then(r => setProducts(r.data)).catch(console.error), [])
 
   useEffect(() => { loadSuppliers(); loadProducts() }, [loadSuppliers, loadProducts])
 
+  const adminTabs = [
+    { id: 'orders',    label: 'Orders' },
+    { id: 'packing',   label: '📦 Packing' },
+    { id: 'suppliers', label: 'Suppliers' },
+    { id: 'products',  label: 'Products' },
+  ]
+
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 32 }}>
-      <SuppliersSection suppliers={suppliers} onRefresh={loadSuppliers} />
-      <ProductsSection  products={products}   suppliers={suppliers} onRefresh={() => { loadProducts(); loadSuppliers() }} />
+    <div>
+      <div style={{ display: 'flex', gap: 4, marginBottom: 24, background: '#f1f5f9', borderRadius: 10, padding: 4, width: 'fit-content', flexWrap: 'wrap' }}>
+        {adminTabs.map(t => (
+          <button key={t.id} onClick={() => setAdminTab(t.id)} style={{
+            padding: '6px 16px', borderRadius: 8, border: 'none', cursor: 'pointer', fontSize: 12, fontWeight: 700,
+            background: adminTab === t.id ? '#fff' : 'transparent',
+            color: adminTab === t.id ? '#0f172a' : '#64748b',
+            boxShadow: adminTab === t.id ? '0 1px 4px rgba(0,0,0,.08)' : 'none',
+            fontFamily: 'inherit',
+          }}>{t.label}</button>
+        ))}
+      </div>
+      {adminTab === 'orders'    && <AdminOrdersSection />}
+      {adminTab === 'packing'   && <PackingSection />}
+      {adminTab === 'suppliers' && <SuppliersSection suppliers={suppliers} onRefresh={loadSuppliers} />}
+      {adminTab === 'products'  && <ProductsSection  products={products} suppliers={suppliers} onRefresh={() => { loadProducts(); loadSuppliers() }} />}
     </div>
   )
 }
