@@ -805,7 +805,7 @@ function ClientDetail({ client, loading, onBack }) {
  <div style={{ flex:1, minWidth:0 }}>
    <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:4 }}>
      {fieldInput(editName, setEditName, 'Client name', { fontSize:22, fontWeight:900, color:'#0f172a', width:'100%' })}
-     <button onClick={toggleDifficult} title={difficult ? 'Remove difficult flag' : 'Flag as difficult client'}
+     <button onClick={toggleDifficult} title={difficult ? 'Bỏ đánh dấu' : 'Đánh dấu khách khó tính'}
        style={{ background:'none', border:'none', cursor:'pointer', padding:3, display:'flex', alignItems:'center', flexShrink:0 }}>
        <FlagIcon active={difficult} size={16} />
      </button>
@@ -1016,7 +1016,7 @@ function ClientsView() {
    </td>
    <td style={{ padding:'12px 16px' }} onClick={e => e.stopPropagation()}>
    <button
-     title={c.difficult_client ? 'Remove difficult flag' : 'Flag as difficult client'}
+     title={c.difficult_client ? 'Bỏ đánh dấu' : 'Đánh dấu khách khó tính'}
      onClick={async () => {
        const newVal = !c.difficult_client
        setClients(prev => prev.map(x => x.id === c.id ? { ...x, difficult_client: newVal } : x))
@@ -1402,7 +1402,8 @@ ${closedDayNames.map(d => `.fc .fc-day[data-dow="${d}"] { background: #f1f5f9 !i
      setPendingHighlight(null)
      setEditingId(null)
      setSvcSearch('')
-     setForm({ full_name:'', phone:'', email:'', technician_id: resourceId || '', service_ids:[], start_time: dateStr.slice(0,16), notes:'' })
+     const tz = salon?.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone
+     setForm({ full_name:'', phone:'', email:'', technician_id: resourceId || '', service_ids:[], start_time: new Date(dateStr).toLocaleString('sv-SE', { timeZone: tz }).slice(0,16).replace(' ', 'T'), notes:'' })
      setShowBooking(true)
    } else {
      // First tap (or different slot) — set highlight
@@ -1415,7 +1416,7 @@ ${closedDayNames.map(d => `.fc .fc-day[data-dow="${d}"] { background: #f1f5f9 !i
      }, 5000)
    }
  }
- }, [isMobile])
+ }, [isMobile, salon])
 
  const openCreate = useCallback((info) => {
  const api = calRef.current?.getApi()
@@ -1428,9 +1429,10 @@ ${closedDayNames.map(d => `.fc .fc-day[data-dow="${d}"] { background: #f1f5f9 !i
  }
  setEditingId(null)
  setSvcSearch('')
- setForm({ ...emptyForm, technician_id: info.resource?.id || '', start_time: info.startStr?.slice(0,16) || '' })
+ const tz = salon?.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone
+ setForm({ ...emptyForm, technician_id: info.resource?.id || '', start_time: info.startStr ? new Date(info.startStr).toLocaleString('sv-SE', { timeZone: tz }).slice(0,16).replace(' ', 'T') : '' })
  setShowBooking(true)
- }, [blockMode, emptyForm])
+ }, [blockMode, emptyForm, salon])
 
  async function openEdit(info) {
  const b = info.event.extendedProps
@@ -1960,8 +1962,8 @@ await axios.put(API + '/api/bookings/' + editingId, {
        </div>
      )
    }
-   const startTime = bk.start_time ? bk.start_time.split('+')[0].split('T')[1]?.slice(0, 5) : ''
-   const endTime   = bk.end_time   ? bk.end_time.split('+')[0].split('T')[1]?.slice(0, 5)   : ''
+   const startTime = info.event.startStr ? fmtTime(info.event.startStr, salon?.timezone, { hour:'2-digit', minute:'2-digit' }) : ''
+   const endTime   = info.event.endStr   ? fmtTime(info.event.endStr,   salon?.timezone, { hour:'2-digit', minute:'2-digit' }) : ''
    const name = bk.customers?.full_name || 'Guest'
    const svc  = bk.services?.name || ''
    const timeRange = startTime && endTime ? `${startTime} - ${endTime}` : startTime
@@ -2070,7 +2072,7 @@ await axios.put(API + '/api/bookings/' + editingId, {
  <Modal title={editingId ? 'Edit Booking' : 'New Booking'} onClose={() => { setShowBooking(false); setPhoneMatches([]); setClientNotes(''); setClientDifficult(false) }}>
  <label style={lbl}>Phone *</label>
  <div style={{ position:'relative' }}>
- <input style={inp} type="tel" value={form.phone} onChange={e => handlePhoneChange(e.target.value)} placeholder="e.g. 0912 345 678" autoComplete="off" />
+ <input style={inp} type="tel" value={form.phone} onChange={e => handlePhoneChange(e.target.value)} placeholder="số điện thoại của khách" autoComplete="off" />
  {phoneMatches.length > 0 && (
    <div style={{ position:'absolute', top:'100%', left:0, right:0, zIndex:300, background:'#fff', border:'1px solid #e2e8f0', borderRadius:10, boxShadow:'0 8px 24px rgba(0,0,0,0.12)', overflow:'hidden', marginTop:2 }}>
      {phoneMatches.map(c => (
@@ -2086,17 +2088,17 @@ await axios.put(API + '/api/bookings/' + editingId, {
 
  <label style={lbl}>Client Name *</label>
  <div style={{ position:'relative' }}>
- <input style={inp} value={form.full_name} onChange={e => setForm({...form, full_name:e.target.value})} placeholder="e.g. Ngoc Anh" />
+ <input style={inp} value={form.full_name} onChange={e => setForm({...form, full_name:e.target.value})} placeholder="tên khách" />
  {clientDifficult && <span style={{ position:'absolute', right:10, top:'50%', transform:'translateY(-50%)' }}><FlagIcon active={true} size={13} /></span>}
  </div>
  {clientDifficult && (
  <div style={{ display:'flex', alignItems:'center', gap:6, padding:'7px 10px', background:'#fef2f2', border:'1px solid #fecaca', borderRadius:8, marginTop:6, fontSize:12, color:'#dc2626', fontWeight:700 }}>
-   <FlagIcon active={true} size={12} /> {salon?.country === 'VN' ? 'Khách hàng khó tính — hãy cẩn thận' : 'Difficult client — handle with care'}
+   <FlagIcon active={true} size={12} /> Khách hàng khó tính — hãy cẩn thận
  </div>
  )}
 
  <label style={lbl}>Email (optional)</label>
- <input style={inp} type="email" value={form.email} onChange={e => setForm({...form, email:e.target.value})} placeholder="e.g. ngoc@email.com" />
+ <input style={inp} type="email" value={form.email} onChange={e => setForm({...form, email:e.target.value})} placeholder="email của khách" />
 
  <label style={lbl}>Technician *</label>
  <select style={inp} value={form.technician_id} onChange={e => setForm({...form, technician_id:e.target.value, service_ids:[]})}>
@@ -2120,26 +2122,38 @@ await axios.put(API + '/api/bookings/' + editingId, {
  placeholder=" Search services…"
  />
  <div style={{ border:'1px solid #e2e8f0', borderRadius:8, overflowY:'auto', maxHeight:180, background:'#fff' }}>
- {filteredServices(form.technician_id).length === 0 ? (
- <div style={{ padding:'10px 12px', fontSize:13, color:'#94a3b8' }}>No services found…</div>
- ) : filteredServices(form.technician_id).map(s => {
- const selected = form.service_ids?.includes(s.id)
- return (
- <div key={s.id} onClick={() => {
- const ids = form.service_ids || []
- setForm({...form, service_ids: selected ? ids.filter(id => id !== s.id) : [...ids, s.id]})
- }}
- style={{ padding:'9px 12px', fontSize:13, cursor:'pointer', borderBottom:'1px solid #f1f5f9',
- background: selected ? '#eff6ff' : '#fff', display:'flex', alignItems:'center', gap:10 }}>
- <div style={{ width:16, height:16, borderRadius:4, border: selected ? 'none' : '2px solid #cbd5e1',
- background: selected ? '#3b82f6' : 'transparent', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
- {selected && <span style={{ color:'#fff', fontSize:11, fontWeight:900 }}></span>}
- </div>
- <span style={{ flex:1, fontWeight: selected ? 700 : 500, color: selected ? '#1d4ed8' : '#0f172a' }}>{s.name}</span>
- <span style={{ fontSize:12, color: selected ? '#3b82f6' : '#94a3b8', fontWeight:600 }}>£{s.price} · {s.duration_minutes}m</span>
- </div>
- )
- })}
+ {(() => {
+   const svcs = filteredServices(form.technician_id)
+   if (svcs.length === 0) return <div style={{ padding:'10px 12px', fontSize:13, color:'#94a3b8' }}>No services found…</div>
+   const grps = CATEGORIES.map(cat => ({ label: cat.label, items: svcs.filter(s => s.category === cat.label) })).filter(g => g.items.length > 0)
+   const uncategorized = svcs.filter(s => !CATEGORIES.some(c => c.label === s.category))
+   if (uncategorized.length > 0) grps.push({ label: 'Other', items: uncategorized })
+   return grps.map(group => (
+     <div key={group.label}>
+       <div style={{ padding:'5px 12px 4px', fontSize:10, fontWeight:900, color:'#94a3b8', textTransform:'uppercase', letterSpacing:0.8, background:'#f8fafc', borderBottom:'1px solid #f1f5f9', position:'sticky', top:0 }}>
+         {group.label}
+       </div>
+       {group.items.map(s => {
+         const selected = form.service_ids?.includes(s.id)
+         return (
+           <div key={s.id} onClick={() => {
+             const ids = form.service_ids || []
+             setForm({...form, service_ids: selected ? ids.filter(id => id !== s.id) : [...ids, s.id]})
+           }}
+           style={{ padding:'9px 12px', fontSize:13, cursor:'pointer', borderBottom:'1px solid #f1f5f9',
+           background: selected ? '#eff6ff' : '#fff', display:'flex', alignItems:'center', gap:10 }}>
+             <div style={{ width:16, height:16, borderRadius:4, border: selected ? 'none' : '2px solid #cbd5e1',
+             background: selected ? '#3b82f6' : 'transparent', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
+               {selected && <span style={{ color:'#fff', fontSize:11, fontWeight:900 }}>✓</span>}
+             </div>
+             <span style={{ flex:1, fontWeight: selected ? 700 : 500, color: selected ? '#1d4ed8' : '#0f172a' }}>{s.name}</span>
+             <span style={{ fontSize:12, color: selected ? '#3b82f6' : '#94a3b8', fontWeight:600 }}>£{s.price} · {s.duration_minutes}m</span>
+           </div>
+         )
+       })}
+     </div>
+   ))
+ })()}
  </div>
 
  {form.service_ids?.length > 0 && (() => {
