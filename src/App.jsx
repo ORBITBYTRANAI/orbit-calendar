@@ -185,7 +185,7 @@ function CheckoutModal({ booking, services, onClose, onComplete, receiptData, co
  onComplete(booking.id, false)
  // Reset loyalty discount flag on the customer after checkout
  if (discountAmt > 0 && booking.customer_id) {
-   axios.patch(API + '/api/customers/' + booking.customer_id, { loyalty_discount_active: false }).catch(() => {})
+   axios.patch(API + '/api/customers/' + booking.customer_id, { loyalty_discount_active: false, stars_earned: 0 }).catch(() => {})
  }
  } catch (err) {
  alert(err.response?.data?.error || 'Checkout failed.')
@@ -219,7 +219,7 @@ function CheckoutModal({ booking, services, onClose, onComplete, receiptData, co
  <div class="row"><span class="label">Technician</span><span>${booking.technicians?.name || '—'}</span></div>
  <div class="row"><span class="label">Date</span><span>${fmtTime(booking.start_time, timezone, { weekday:'short', day:'numeric', month:'short', hour:'2-digit', minute:'2-digit' })}</span></div>
  <hr class="divider"/>
- ${splits.map(s => `<div class="payment">${s.method} — £${parseFloat(s.amount).toFixed(2)}</div>`).join('')}
+ ${discountAmt > 0 ? `<div class="payment" style="color:#059669;font-weight:700">Loyalty Discount Applied! £${discountAmt.toFixed(2)} Off!</div>` : ''}${splits.map(s => `<div class="payment">${s.method} — £${parseFloat(s.amount).toFixed(2)}</div>`).join('')}
  <div class="total-row"><span>Total</span><span>£${total.toFixed(2)}</span></div>
  <hr class="divider"/>
  <div class="footer">Printed ${printedAt}<br/>Thank you for visiting!</div>
@@ -243,6 +243,7 @@ function CheckoutModal({ booking, services, onClose, onComplete, receiptData, co
      startTime:      booking.start_time,
      payments:       splits,
      total,
+     discountAmt:    discountAmt > 0 ? discountAmt : undefined,
    })
    setReceiptSent(true)
    setTimeout(() => setReceiptSent(false), 3000)
@@ -284,7 +285,7 @@ function CheckoutModal({ booking, services, onClose, onComplete, receiptData, co
 ))}
  {discountAmt > 0 && (
  <div style={{ display:'flex', justifyContent:'space-between', fontSize:12, color:'#059669', fontWeight:700, marginBottom:4 }}>
-   <span>Loyalty Discount</span><span>-Â£{discountAmt.toFixed(2)}</span>
+   <span>Loyalty Discount Applied! £{discountAmt.toFixed(2)} Off!</span>
  </div>
  )}
  {splits.map((s, i) => (
@@ -343,7 +344,7 @@ function CheckoutModal({ booking, services, onClose, onComplete, receiptData, co
 )}
  {discountAmt > 0 && (
  <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', padding:'8px 12px', background:'#f0fdf4', border:'1px solid #bbf7d0', borderRadius:8, marginTop:10, marginBottom:4, fontSize:13, fontWeight:700, color:'#059669' }}>
-   <span>Loyalty Discount applied</span><span>-Â£{discountAmt.toFixed(2)}</span>
+   <span>Loyalty Discount Applied! £{discountAmt.toFixed(2)} Off!</span>
  </div>
  )}
  <label style={lbl}>Total Amount (£)</label>
@@ -918,9 +919,53 @@ function ClientDetail({ client, loading, onBack }) {
  )
 }
 
+// Rewards settings tab
+function RewardsTab() {
+ const [amount, setAmount] = useState('')
+ const [saved, setSaved] = useState(false)
+ const [loading, setLoading] = useState(true)
+
+ useEffect(() => {
+   axios.get(API + '/api/settings/loyalty_discount')
+     .then(r => setAmount(r.data?.value || '0'))
+     .catch(() => setAmount('0'))
+     .finally(() => setLoading(false))
+ }, [])
+
+ async function handleSave() {
+   try {
+     await axios.post(API + '/api/settings/loyalty_discount', { value: String(parseFloat(amount) || 0) })
+     setSaved(true)
+     setTimeout(() => setSaved(false), 2500)
+   } catch (err) {
+     alert('Failed to save: ' + (err.response?.data?.error || err.message))
+   }
+ }
+
+ return (
+   <div style={{ maxWidth: 480, marginTop: 8 }}>
+     <div style={{ background:'#f0fdf4', border:'1px solid #bbf7d0', borderRadius:12, padding:'14px 18px', marginBottom:24, fontSize:13, color:'#166534', lineHeight:1.6 }}>
+       Clients earn a star per visit. After 5 stars, this discount is automatically applied to their next checkout.
+     </div>
+     <label style={lbl}>Loyalty Discount Amount (£)</label>
+     {loading ? (
+       <div style={{ fontSize:13, color:'#94a3b8' }}>Loading…</div>
+     ) : (
+       <div style={{ display:'flex', gap:10, alignItems:'center' }}>
+         <input style={{ ...inp, width:140 }} type="number" min="0" step="0.01" value={amount}
+           onChange={e => setAmount(e.target.value)} />
+         <button onClick={handleSave} style={btnPrimary}>Save</button>
+         {saved && <span style={{ fontSize:13, color:'#059669', fontWeight:700 }}>Saved ✓</span>}
+       </div>
+     )}
+   </div>
+ )
+}
+
 // Clients List View
 function ClientsView() {
  const isMobile = useIsMobile()
+ const [activeTab, setActiveTab] = useState('clients')
  const [clients, setClients] = useState([])
  const [search, setSearch] = useState('')
  const [loading, setLoading] = useState(true)
@@ -956,6 +1001,17 @@ function ClientsView() {
 
  return (
  <div style={{ padding: isMobile ? 16 : 24, flex:1, overflowY:'auto' }}>
+ {/* Tab bar */}
+ <div style={{ display:'flex', gap:4, marginBottom:20, borderBottom:'2px solid #f1f5f9', paddingBottom:0 }}>
+   {[['clients','Clients'],['rewards','Rewards']].map(([key, label]) => (
+     <button key={key} onClick={() => setActiveTab(key)}
+       style={{ padding:'8px 18px', border:'none', borderRadius:'8px 8px 0 0', background: activeTab === key ? '#0f172a' : 'transparent', color: activeTab === key ? '#fff' : '#64748b', fontWeight:800, fontSize:13, cursor:'pointer' }}>
+       {label}
+     </button>
+   ))}
+ </div>
+ {activeTab === 'rewards' && <RewardsTab />}
+ {activeTab === 'clients' && <>
  <div style={{ display:'flex', flexDirection: isMobile ? 'column' : 'row', justifyContent:'space-between', alignItems: isMobile ? 'stretch' : 'center', gap: isMobile ? 10 : 0, marginBottom:20 }}>
  <h1 style={{ fontSize:20, fontWeight:900, color:'#0f172a', margin:0 }}>Clients</h1>
  <input style={{ ...inp, width: isMobile ? '100%' : 280 }} placeholder="Search name, phone or email…"
@@ -1044,6 +1100,7 @@ function ClientsView() {
    </table>
    </div>
  )}
+ </>}
  </div>
  )
 }
@@ -1186,6 +1243,7 @@ function MainApp({ salon, onLogout }) {
  const [checkoutBooking, setCheckoutBooking] = useState(null)
  const [checkoutReceiptData, setCheckoutReceiptData] = useState(null)
  const [checkoutLoyaltyDiscount, setCheckoutLoyaltyDiscount] = useState(0)
+ const [loyaltyDiscountAmt, setLoyaltyDiscountAmt] = useState(0)
  const [openingHours, setOpeningHours] = useState(DEFAULT_HOURS)
  const [hoursLoaded, setHoursLoaded] = useState(false)
  const [svcSearch, setSvcSearch] = useState('')
@@ -1232,6 +1290,11 @@ function MainApp({ salon, onLogout }) {
  const h = await axios.get(API + '/api/settings/opening_hours')
  if (h.data?.value) { setOpeningHours(JSON.parse(h.data.value)); setHoursLoaded(true) }
  } catch (_) { setHoursLoaded(true) }
+ // Load loyalty discount setting
+ try {
+   const ld = await axios.get(API + '/api/settings/loyalty_discount')
+   setLoyaltyDiscountAmt(parseFloat(ld.data?.value || '0') || 0)
+ } catch (_) {}
  }
 
  // Auto-refresh bookings every 15 minutes
@@ -1980,6 +2043,9 @@ await axios.put(API + '/api/bookings/' + editingId, {
      <div style={{ display:'flex', flexDirection:'column', justifyContent:'flex-start', alignItems:'flex-start', overflow:'hidden', height:'100%', padding:'2px 4px', fontSize:'inherit', lineHeight:1.3 }}>
        {timeRange && <span style={{ whiteSpace:'nowrap', fontWeight:600, fontSize:'0.85em' }}>{timeRange}</span>}
        <span style={{ overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', width:'100%' }}>{name}{svc ? ' · ' + svc : ''}</span>
+     {bk.customers?.loyalty_discount_active && loyaltyDiscountAmt > 0 && (
+       <span style={{ fontSize:'0.75em', color:'#059669', fontWeight:700, whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis', width:'100%' }}>Loyalty Discount Applied! £{loyaltyDiscountAmt.toFixed(2)} Off!</span>
+     )}
      </div>
    )
  }}
