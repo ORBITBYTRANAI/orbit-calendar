@@ -1404,7 +1404,7 @@ function MainApp({ salon, onLogout }) {
    backgroundColor: 'transparent',
    borderColor: '#94a3b8',
    textColor: '#64748b',
-   editable: false,
+   editable: true,
    extendedProps: { isBlock: true, blockId: bl.id, reason: bl.reason, start_time: bl.start_time, end_time: bl.end_time },
  }))
  return [...bookingEvents, ...blockEvents]
@@ -1773,10 +1773,16 @@ await axios.put(API + '/api/bookings/' + editingId, {
  }, [])
 
  const handleResize = useCallback(async (info) => {
- const id = info.event.id
  const end = new Date(info.event.endStr).toISOString()
- setBookings(prev => prev.map(b => b.id !== id ? b : { ...b, end_time: end }))
- await axios.put(API + '/api/bookings/' + id, { end_time: end })
+ const { isBlock, blockId } = info.event.extendedProps
+ if (isBlock) {
+   setBlocks(prev => prev.map(bl => bl.id !== blockId ? bl : { ...bl, end_time: end }))
+   await axios.patch(API + '/api/blocks/' + blockId, { end_time: end })
+ } else {
+   const id = info.event.id
+   setBookings(prev => prev.map(b => b.id !== id ? b : { ...b, end_time: end }))
+   await axios.put(API + '/api/bookings/' + id, { end_time: end })
+ }
  }, [])
 
  // Technician CRUD 
