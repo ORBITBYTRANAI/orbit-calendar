@@ -1764,12 +1764,19 @@ await axios.put(API + '/api/bookings/' + editingId, {
  }
 
  const handleDrop = useCallback(async (info) => {
- const id = info.event.id
  const start = new Date(info.event.startStr).toISOString()
  const end = new Date(info.event.endStr).toISOString()
  const techId = info.event.getResources()[0]?.id
- setBookings(prev => prev.map(b => b.id !== id ? b : { ...b, start_time: start, end_time: end, technician_id: techId }))
- await axios.put(API + '/api/bookings/' + id, { start_time: start, end_time: end, technician_id: techId })
+ const { isBlock, blockId } = info.event.extendedProps
+ console.log('[eventDrop]', isBlock ? 'block' : 'booking', { blockId, start, end, techId })
+ if (isBlock) {
+   setBlocks(prev => prev.map(bl => bl.id !== blockId ? bl : { ...bl, start_time: start, end_time: end, technician_id: techId }))
+   await axios.patch(API + '/api/blocks/' + blockId, { start_time: start, end_time: end, technician_id: techId })
+ } else {
+   const id = info.event.id
+   setBookings(prev => prev.map(b => b.id !== id ? b : { ...b, start_time: start, end_time: end, technician_id: techId }))
+   await axios.put(API + '/api/bookings/' + id, { start_time: start, end_time: end, technician_id: techId })
+ }
  }, [])
 
  const handleResize = useCallback(async (info) => {
