@@ -1256,11 +1256,13 @@ function MainApp({ salon, onLogout }) {
  const [clientNotes, setClientNotes] = useState('')
  const [clientDifficult, setClientDifficult] = useState(false)
  const [blocks, setBlocks] = useState([])
- const [blockMode, setBlockMode] = useState(false)
- const [blockToast, setBlockToast] = useState(null)
+ const [showBlockModal, setShowBlockModal] = useState(false)
+ const [blockForm, setBlockForm] = useState({ technician_id:'', date: new Date().toLocaleDateString('sv-SE'), start:'10:00', end:'11:00', reason:'' })
  const [pendingHighlight, setPendingHighlight] = useState(null) // { dateStr, resourceId } — mobile two-tap slot
  const pendingSlotRef = useRef(null)
  const pendingTimer = useRef(null) // { id, message }
+ const wheelTimer = useRef(null)
+ const calWrapperRef = useRef(null)
  const [confirmModal, setConfirmModal] = useState(null) // { title, message, confirmLabel, cancelLabel, destructive, onConfirm, extras }
  const [cancelReason, setCancelReason] = useState('Customer requested')
  const [cancelOther, setCancelOther] = useState('')
@@ -1337,6 +1339,25 @@ function MainApp({ salon, onLogout }) {
  document.addEventListener('click', close)
  return () => document.removeEventListener('click', close)
  }, [openBubbleDate])
+
+ // Month view: wheel scroll to navigate months
+ useEffect(() => {
+   const el = calWrapperRef.current
+   if (!el) return
+   function onWheel(e) {
+     const api = calRef.current?.getApi()
+     if (!api || api.view.type !== 'dayGridMonth') return
+     e.preventDefault()
+     const delta = e.deltaY
+     clearTimeout(wheelTimer.current)
+     wheelTimer.current = setTimeout(() => {
+       if (delta > 0) api.next()
+       else if (delta < 0) api.prev()
+     }, 400)
+   }
+   el.addEventListener('wheel', onWheel, { capture: true, passive: false })
+   return () => el.removeEventListener('wheel', onWheel, { capture: true })
+ }, [])
 
  // Calendar resources & events — memoized so FullCalendar doesn't re-process on unrelated renders
  const resources = useMemo(() => technicians.map(t => ({ id: t.id, title: t.name })), [technicians])
@@ -1436,8 +1457,8 @@ function MainApp({ salon, onLogout }) {
 .fc .fc-timegrid-slot-lane { transition: background 120ms ease; cursor: pointer; }
 .fc .fc-timegrid-slot-lane:hover { background: rgba(15,23,42,0.05) !important; }
 .fc .fc-highlight { background: rgba(15,23,42,0.12) !important; outline: 2px solid #0f172a; outline-offset: -1px; border-radius: 3px; }
-.fc .fc-timegrid-now-indicator-line { border-color: #ef4444 !important; border-width: 2px !important; position: relative; }
-.fc .fc-timegrid-now-indicator-line::before { content: ''; position: absolute; left: -4px; top: -4px; width: 8px; height: 8px; background: #ef4444; border-radius: 50%; }
+.fc .fc-timegrid-now-indicator-line { border-color: #000000 !important; border-width: 1px !important; position: relative; }
+.fc .fc-timegrid-now-indicator-line::before { content: ''; position: absolute; left: -4px; top: -4px; width: 8px; height: 8px; background: #000000; border-radius: 50%; }
 .fc .fc-timegrid-now-indicator-arrow { display: none; }
 .orbit-block-event .fc-event-main { padding: 0 !important; }
 .fc-slot-pending { border: 2px dashed rgba(200, 98, 42, 0.7) !important; border-radius: 4px !important; }
@@ -1490,18 +1511,12 @@ ${closedDayNames.map(d => `.fc .fc-day[data-dow="${d}"] { background: #f1f5f9 !i
  const openCreate = useCallback((info) => {
  const api = calRef.current?.getApi()
  if (api?.view.type === 'dayGridMonth') return
- if (blockMode) {
-   const techId = info.resource?.id
-   if (!techId) return
-   createBlock(info.startStr, info.endStr, techId)
-   return
- }
  setEditingId(null)
  setSvcSearch('')
  const tz = salon?.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone
  setForm({ ...emptyForm, technician_id: info.resource?.id || '', start_time: info.startStr ? new Date(info.startStr).toLocaleString('sv-SE', { timeZone: tz }).slice(0,16).replace(' ', 'T') : '' })
  setShowBooking(true)
- }, [blockMode, emptyForm, salon])
+ }, [emptyForm, salon])
 
  async function openEdit(info) {
  const b = info.event.extendedProps
@@ -1728,17 +1743,21 @@ await axios.put(API + '/api/bookings/' + editingId, {
  })
  }
 
- async function createBlock(startStr, endStr, technicianId) {
+ async function createBlock() {
+ const { technician_id, date, start, end, reason } = blockForm
+ if (!technician_id || !date || !start || !end) { alert('Please fill in all required fields.'); return }
+ const startISO = new Date(`${date}T${start}:00`).toISOString()
+ const endISO   = new Date(`${date}T${end}:00`).toISOString()
  try {
    const { data } = await axios.post(API + '/api/blocks', {
-     technician_id: technicianId,
-     start_time: startStr,
-     end_time: endStr,
+     technician_id,
+     start_time: startISO,
+     end_time: endISO,
+     reason: reason || null,
    })
    setBlocks(prev => [...prev, data])
-   const toastId = data.id
-   setBlockToast({ id: toastId, message: 'Block added' })
-   setTimeout(() => setBlockToast(t => t?.id === toastId ? null : t), 5000)
+   setShowBlockModal(false)
+   setBlockForm({ technician_id:'', date: new Date().toLocaleDateString('sv-SE'), start:'10:00', end:'11:00', reason:'' })
  } catch (err) {
    alert(err.response?.data?.error || 'Could not create block.')
  }
@@ -1979,9 +1998,9 @@ await axios.put(API + '/api/bookings/' + editingId, {
  <style>{calendarCss}</style>
  <div style={{ display:'flex', justifyContent:'flex-end', marginBottom:10 }}>
    <button
-     onClick={() => setBlockMode(m => !m)}
-     style={{ padding:'7px 14px', borderRadius:8, border:'none', background: blockMode ? '#ef4444' : '#64748b', color:'#fff', fontWeight:700, fontSize:12, cursor:'pointer' }}>
-     {blockMode ? '✕ Exit Block Mode' : '⬛ Block Time'}
+     onClick={() => setShowBlockModal(true)}
+     style={{ padding:'7px 14px', borderRadius:8, border:'none', background:'#64748b', color:'#fff', fontWeight:700, fontSize:12, cursor:'pointer' }}>
+     Block Time
    </button>
  </div>
  {pendingHighlight && isMobile && (
@@ -1991,7 +2010,7 @@ await axios.put(API + '/api/bookings/' + editingId, {
     </span>
   </div>
 )}
-<div style={isMobile ? { overflowX: 'auto', scrollSnapType: 'x mandatory', WebkitOverflowScrolling: 'touch' } : {}}>
+<div ref={calWrapperRef} style={isMobile ? { overflowX: 'auto', scrollSnapType: 'x mandatory', WebkitOverflowScrolling: 'touch' } : {}}>
  <FullCalendar
  ref={calRef}
  plugins={[resourceTimeGridPlugin, dayGridPlugin, listPlugin, interactionPlugin]}
@@ -2096,10 +2115,9 @@ await axios.put(API + '/api/bookings/' + editingId, {
      <div style={{ display:'flex', flexDirection:'column', gap:4, padding:'4px 6px' }}>
        <span style={{ fontWeight:800, fontSize:13 }}>{info.resource.title}</span>
        <div>
-         <div style={{ fontSize:11, color:'#94a3b8', fontWeight:700, textTransform:'uppercase', letterSpacing:'0.5px', marginBottom:3 }}>Note</div>
          <input
            key={techNotes[noteKey] !== undefined ? noteKey : 'pending_' + noteKey}
-           style={{ fontSize:14, color:'#374151', border:'1px solid #e5e7eb', background:'#f9fafb', borderRadius:6, outline:'none', width:'100%', fontFamily:'inherit', padding:'8px 12px', boxSizing:'border-box', textAlign:'left' }}
+           style={{ fontSize:14, color:'#374151', border:'1px solid #e5e7eb', background:'#f9fafb', borderRadius:6, outline:'none', width:'100%', fontFamily:'inherit', padding:'8px 12px', boxSizing:'border-box', textAlign:'center' }}
            placeholder="Add a note..."
            defaultValue={techNotes[noteKey] ?? ''}
            onBlur={e => saveTechNote(techId, calDate, e.target.value)}
@@ -2400,17 +2418,50 @@ return (
  </Modal>
  )}
 
- {/* Block toast */}
- {blockToast && (
-   <div style={{ position:'fixed', bottom:24, right:24, zIndex:10000, background:'#1e293b', color:'#fff', borderRadius:12, padding:'14px 20px', display:'flex', alignItems:'center', gap:16, boxShadow:'0 8px 24px rgba(0,0,0,0.3)', fontSize:14, fontWeight:700 }}>
-     <span>{blockToast.message}</span>
-     <button onClick={async () => {
-       const id = blockToast.id
-       setBlockToast(null)
-       await axios.delete(API + '/api/blocks/' + id)
-       setBlocks(prev => prev.filter(b => b.id !== id))
-     }} style={{ background:'none', border:'none', color:'#94a3b8', cursor:'pointer', fontWeight:700, fontSize:13, padding:0 }}>Undo</button>
-   </div>
+ {/* Block Time modal */}
+ {showBlockModal && (
+   <Modal title="Block Time" onClose={() => setShowBlockModal(false)}>
+     <div style={{ display:'flex', flexDirection:'column', gap:14, padding:'4px 0' }}>
+       <div>
+         <label style={{ fontSize:12, fontWeight:700, color:'#64748b', display:'block', marginBottom:4 }}>Technician</label>
+         <select
+           value={blockForm.technician_id}
+           onChange={e => setBlockForm(f => ({ ...f, technician_id: e.target.value }))}
+           style={{ width:'100%', padding:'8px 10px', borderRadius:8, border:'1px solid #e2e8f0', fontSize:14, background:'#fff' }}
+         >
+           <option value="">Select technician...</option>
+           {technicians.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+         </select>
+       </div>
+       <div>
+         <label style={{ fontSize:12, fontWeight:700, color:'#64748b', display:'block', marginBottom:4 }}>Date</label>
+         <input type="date" value={blockForm.date} onChange={e => setBlockForm(f => ({ ...f, date: e.target.value }))}
+           style={{ width:'100%', padding:'8px 10px', borderRadius:8, border:'1px solid #e2e8f0', fontSize:14, boxSizing:'border-box' }} />
+       </div>
+       <div style={{ display:'flex', gap:10 }}>
+         <div style={{ flex:1 }}>
+           <label style={{ fontSize:12, fontWeight:700, color:'#64748b', display:'block', marginBottom:4 }}>Start</label>
+           <input type="time" value={blockForm.start} onChange={e => setBlockForm(f => ({ ...f, start: e.target.value }))}
+             style={{ width:'100%', padding:'8px 10px', borderRadius:8, border:'1px solid #e2e8f0', fontSize:14, boxSizing:'border-box' }} />
+         </div>
+         <div style={{ flex:1 }}>
+           <label style={{ fontSize:12, fontWeight:700, color:'#64748b', display:'block', marginBottom:4 }}>End</label>
+           <input type="time" value={blockForm.end} onChange={e => setBlockForm(f => ({ ...f, end: e.target.value }))}
+             style={{ width:'100%', padding:'8px 10px', borderRadius:8, border:'1px solid #e2e8f0', fontSize:14, boxSizing:'border-box' }} />
+         </div>
+       </div>
+       <div>
+         <label style={{ fontSize:12, fontWeight:700, color:'#64748b', display:'block', marginBottom:4 }}>Reason (optional)</label>
+         <input type="text" value={blockForm.reason} onChange={e => setBlockForm(f => ({ ...f, reason: e.target.value }))}
+           placeholder="e.g. Lunch break, Training..."
+           style={{ width:'100%', padding:'8px 10px', borderRadius:8, border:'1px solid #e2e8f0', fontSize:14, boxSizing:'border-box' }} />
+       </div>
+       <button onClick={createBlock}
+         style={{ marginTop:4, padding:'10px 0', borderRadius:8, border:'none', background:'#0f172a', color:'#fff', fontWeight:700, fontSize:14, cursor:'pointer' }}>
+         Save Block
+       </button>
+     </div>
+   </Modal>
  )}
 
  {/* Confirm/destructive modal */}
@@ -2450,7 +2501,7 @@ return (
    return createPortal(
      <div
        onClick={e => { bubbleClickRef.current = true; e.stopPropagation() }}
-       style={{ position:'fixed', top: bubblePos.top, left: bubblePos.left, zIndex:9000, background:'#fff', border:'1px solid #e2e8f0', borderRadius:10, boxShadow:'0 8px 24px rgba(0,0,0,0.18)', overflow:'hidden', minWidth:200, maxWidth:280 }}
+       style={{ position:'fixed', top: bubblePos.top, left: bubblePos.left, zIndex:9000, background:'#fff', border:'1px solid #e2e8f0', borderRadius:10, boxShadow:'0 8px 24px rgba(0,0,0,0.18)', minWidth:200, maxWidth:280, maxHeight:168, overflowY:'auto' }}
      >
        {portalBks.map((bk, i) => (
          <button
