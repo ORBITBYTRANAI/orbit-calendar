@@ -1546,7 +1546,7 @@ ${closedDayNames.map(d => `.fc .fc-day[data-dow="${d}"] { background: #f1f5f9 !i
  if (status === 'completed') {
  // Fetch receipt data BEFORE opening modal so it renders in receipt view immediately
  let fullBooking = bookings.find(bk => bk.id === info.event.id) || b
- try { const fr = await axios.get(API + '/api/bookings/' + info.event.id); fullBooking = { ...fullBooking, ...fr.data } } catch (_) {}
+ try { const fr = await axios.get(API + '/api/bookings/' + info.event.id); fullBooking = { ...fullBooking, upsell_products: fr.data.upsell_products || fullBooking.upsell_products || [] } } catch (_) {}
  let receiptData = null
  try {
  const res = await axios.get(API + '/api/checkouts/' + info.event.id)
@@ -1564,7 +1564,7 @@ ${closedDayNames.map(d => `.fc .fc-day[data-dow="${d}"] { background: #f1f5f9 !i
  }
  // Refresh booking to pick up upsell_products saved after initial load
  let b_fresh = b
- try { const fr = await axios.get(API + '/api/bookings/' + info.event.id); b_fresh = { ...b, ...fr.data }; setBookings(prev => prev.map(bk => bk.id === b_fresh.id ? b_fresh : bk)) } catch (_) {}
+ try { const fr = await axios.get(API + '/api/bookings/' + info.event.id); b_fresh = { ...b, upsell_products: fr.data.upsell_products || b.upsell_products || [] }; setBookings(prev => prev.map(bk => bk.id === info.event.id ? { ...bk, upsell_products: b_fresh.upsell_products } : bk)) } catch (_) {}
  setEditingId(info.event.id)
  setSvcSearch('')
  const rawIds = b_fresh.service_ids?.length ? b_fresh.service_ids : (b_fresh.service_id ? [b_fresh.service_id] : [])
@@ -1595,14 +1595,14 @@ ${closedDayNames.map(d => `.fc .fc-day[data-dow="${d}"] { background: #f1f5f9 !i
    setCheckoutLoyaltyDiscount(loyaltyAmt)
    setCheckoutReceiptData(receiptData)
    let bk_fresh = bk
-   try { const fr = await axios.get(API + '/api/bookings/' + bk.id); bk_fresh = { ...bk, ...fr.data } } catch (_) {}
+   try { const fr = await axios.get(API + '/api/bookings/' + bk.id); bk_fresh = { ...bk, upsell_products: fr.data.upsell_products || bk.upsell_products || [] } } catch (_) {}
    setCheckoutBooking(bk_fresh)
    setShowCheckout(true)
    return
  }
  // Refresh booking to pick up upsell_products
  let bk_fresh = bk
- try { const fr = await axios.get(API + '/api/bookings/' + bk.id); bk_fresh = { ...bk, ...fr.data }; setBookings(prev => prev.map(b => b.id === bk_fresh.id ? bk_fresh : b)) } catch (_) {}
+ try { const fr = await axios.get(API + '/api/bookings/' + bk.id); bk_fresh = { ...bk, upsell_products: fr.data.upsell_products || bk.upsell_products || [] }; setBookings(prev => prev.map(b => b.id === bk.id ? { ...b, upsell_products: bk_fresh.upsell_products } : b)) } catch (_) {}
  setEditingId(bk.id)
  setSvcSearch('')
  const rawIds = bk_fresh.service_ids?.length ? bk_fresh.service_ids : (bk_fresh.service_id ? [bk_fresh.service_id] : [])
