@@ -2069,7 +2069,9 @@ await axios.put(API + '/api/bookings/' + editingId, {
    const startTime = info.event.startStr?.slice(11, 16) || ''
    const endTime   = info.event.endStr?.slice(11, 16)   || ''
    const name = bk.customers?.full_name || 'Guest'
-   const svc  = bk.services?.name || ''
+   const svc  = bk.services?.name
+     || services.find(s => bk.service_ids?.includes(s.id))?.name
+     || ''
    const timeRange = startTime && endTime ? `${startTime} - ${endTime}` : startTime
    return (
      <div style={{ display:'flex', flexDirection:'column', justifyContent:'flex-start', alignItems:'flex-start', overflow:'hidden', height:'100%', padding:'2px 4px', fontSize:'inherit', lineHeight:1.3 }}>
