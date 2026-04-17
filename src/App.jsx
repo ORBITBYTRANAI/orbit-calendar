@@ -1380,7 +1380,13 @@ function MainApp({ salon, onLogout }) {
    } else {
      color = b.services?.color || CATEGORY_COLOR[b.services?.category] || '#94a3b8'
    }
-   let title = (b.customers?.full_name || 'Guest') + ' · ' + (b.services?.name || '')
+   // Resolve service name: prefer Supabase FK join, fall back to service_ids
+   // state lookup. Computed here (in useMemo) where services[] is a dep,
+   // not in eventContent where it could be a stale closure.
+   const svcName = b.services?.name
+     || services.find(s => (b.service_ids || []).includes(s.id))?.name
+     || ''
+   let title = (b.customers?.full_name || 'Guest') + (svcName ? ' · ' + svcName : '')
    if (isVisualiser && b.ai_prediction) title = (b.customers?.full_name || 'Guest') + ' · ' + b.ai_prediction
    return {
      id: b.id,
@@ -1392,7 +1398,7 @@ function MainApp({ salon, onLogout }) {
      borderColor: color,
      textColor: isVisualiser ? '#fff' : '#1e293b',
      editable: !isCompleted,
-     extendedProps: b,
+     extendedProps: { ...b, _svcName: svcName },
    }
  })
  const blockEvents = blocks.map(bl => ({
@@ -2069,9 +2075,7 @@ await axios.put(API + '/api/bookings/' + editingId, {
    const startTime = info.event.startStr?.slice(11, 16) || ''
    const endTime   = info.event.endStr?.slice(11, 16)   || ''
    const name = bk.customers?.full_name || 'Guest'
-   const svc  = bk.services?.name
-     || services.find(s => bk.service_ids?.includes(s.id))?.name
-     || ''
+   const svc  = bk._svcName || ''
    const timeRange = startTime && endTime ? `${startTime} - ${endTime}` : startTime
    return (
      <div style={{ display:'flex', flexDirection:'column', justifyContent:'flex-start', alignItems:'flex-start', overflow:'hidden', height:'100%', padding:'2px 4px', fontSize:'inherit', lineHeight:1.3 }}>
