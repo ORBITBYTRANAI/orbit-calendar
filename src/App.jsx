@@ -1545,7 +1545,8 @@ ${closedDayNames.map(d => `.fc .fc-day[data-dow="${d}"] { background: #f1f5f9 !i
  const status = b.status || info.event.extendedProps?.status
  if (status === 'completed') {
  // Fetch receipt data BEFORE opening modal so it renders in receipt view immediately
- const fullBooking = bookings.find(bk => bk.id === info.event.id) || b
+ let fullBooking = bookings.find(bk => bk.id === info.event.id) || b
+ try { const fr = await axios.get(API + '/api/bookings/' + info.event.id); fullBooking = { ...fullBooking, ...fr.data } } catch (_) {}
  let receiptData = null
  try {
  const res = await axios.get(API + '/api/checkouts/' + info.event.id)
@@ -1561,18 +1562,22 @@ ${closedDayNames.map(d => `.fc .fc-day[data-dow="${d}"] { background: #f1f5f9 !i
  setShowCheckout(true)
  return
  }
+ // Refresh booking to pick up upsell_products saved after initial load
+ let b_fresh = b
+ try { const fr = await axios.get(API + '/api/bookings/' + info.event.id); b_fresh = { ...b, ...fr.data }; setBookings(prev => prev.map(bk => bk.id === b_fresh.id ? b_fresh : bk)) } catch (_) {}
  setEditingId(info.event.id)
  setSvcSearch('')
- const rawIds = b.service_ids?.length ? b.service_ids : (b.service_id ? [b.service_id] : [])
+ const rawIds = b_fresh.service_ids?.length ? b_fresh.service_ids : (b_fresh.service_id ? [b_fresh.service_id] : [])
  const existingIds = rawIds.filter(id => id && typeof id === 'string' && id.length > 0)
  setForm({
- full_name: b.customers?.full_name || '',
- phone: b.customers?.phone || '',
- email: b.customers?.email || '',
- technician_id: b.technician_id,
+ full_name: b_fresh.customers?.full_name || '',
+ phone: b_fresh.customers?.phone || '',
+ email: b_fresh.customers?.email || '',
+ technician_id: b_fresh.technician_id,
  service_ids: existingIds,
- start_time: b.start_time ? new Date(b.start_time).toLocaleString('sv-SE', { timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone }).slice(0,16).replace(' ', 'T') : '',
- notes: b.notes || '',
+ start_time: b_fresh.start_time ? new Date(b_fresh.start_time).toLocaleString('sv-SE', { timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone }).slice(0,16).replace(' ', 'T') : '',
+ notes: b_fresh.notes || '',
+ upsell_products: b_fresh.upsell_products || [],
  })
  setShowBooking(true)
  }
@@ -1589,21 +1594,27 @@ ${closedDayNames.map(d => `.fc .fc-day[data-dow="${d}"] { background: #f1f5f9 !i
    }
    setCheckoutLoyaltyDiscount(loyaltyAmt)
    setCheckoutReceiptData(receiptData)
-   setCheckoutBooking(bk)
+   let bk_fresh = bk
+   try { const fr = await axios.get(API + '/api/bookings/' + bk.id); bk_fresh = { ...bk, ...fr.data } } catch (_) {}
+   setCheckoutBooking(bk_fresh)
    setShowCheckout(true)
    return
  }
+ // Refresh booking to pick up upsell_products
+ let bk_fresh = bk
+ try { const fr = await axios.get(API + '/api/bookings/' + bk.id); bk_fresh = { ...bk, ...fr.data }; setBookings(prev => prev.map(b => b.id === bk_fresh.id ? bk_fresh : b)) } catch (_) {}
  setEditingId(bk.id)
  setSvcSearch('')
- const rawIds = bk.service_ids?.length ? bk.service_ids : (bk.service_id ? [bk.service_id] : [])
+ const rawIds = bk_fresh.service_ids?.length ? bk_fresh.service_ids : (bk_fresh.service_id ? [bk_fresh.service_id] : [])
  setForm({
-   full_name: bk.customers?.full_name || '',
-   phone: bk.customers?.phone || '',
-   email: bk.customers?.email || '',
-   technician_id: bk.technician_id,
+   full_name: bk_fresh.customers?.full_name || '',
+   phone: bk_fresh.customers?.phone || '',
+   email: bk_fresh.customers?.email || '',
+   technician_id: bk_fresh.technician_id,
    service_ids: rawIds.filter(id => id && typeof id === 'string'),
-   start_time: bk.start_time ? new Date(bk.start_time).toLocaleString('sv-SE', { timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone }).slice(0,16).replace(' ', 'T') : '',
-   notes: bk.notes || '',
+   upsell_products: bk_fresh.upsell_products || [],
+   start_time: bk_fresh.start_time ? new Date(bk_fresh.start_time).toLocaleString('sv-SE', { timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone }).slice(0,16).replace(' ', 'T') : '',
+   notes: bk_fresh.notes || '',
  })
  setShowBooking(true)
  }
