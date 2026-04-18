@@ -21,6 +21,13 @@ const CATEGORIES = [
  { label: 'Beauty',            color: '#c182ca' },
 ]
 const CATEGORY_COLOR = Object.fromEntries(CATEGORIES.map(c => [c.label, c.color]))
+const CATEGORY_ORDER = CATEGORIES.map(c => c.label)
+function sortByCategory(svcs) {
+  return [...svcs].sort((a, b) => {
+    const ai = CATEGORY_ORDER.indexOf(a.category); const bi = CATEGORY_ORDER.indexOf(b.category)
+    return (ai === -1 ? 99 : ai) - (bi === -1 ? 99 : bi)
+  })
+}
 function getPaymentMethods(country) {
  return country === 'UK'
    ? ['Cash', 'Card', 'Stripe Deposit', 'Gift Card']
@@ -119,9 +126,11 @@ function CheckoutModal({ booking, services, onClose, onComplete, receiptData, co
  const mobileBox = isMobile
    ? { background:'#fff', width:'100%', height:'100dvh', maxHeight:'100dvh', overflowY:'auto', display:'flex', flexDirection:'column' }
    : null
- const selectedSvcs = booking.service_ids?.length
- ? booking.service_ids.map(id => services.find(s => s.id === id)).filter(Boolean)
- : (booking.service_id ? [services.find(s => s.id === booking.service_id)].filter(Boolean) : [])
+ const selectedSvcs = sortByCategory(
+  booking.service_ids?.length
+  ? booking.service_ids.map(id => services.find(s => s.id === id)).filter(Boolean)
+  : (booking.service_id ? [services.find(s => s.id === booking.service_id)].filter(Boolean) : [])
+)
  const svc = selectedSvcs[0] || services.find(s => s.id === booking.service_id)
  const upsellItems = Array.isArray(booking.upsell_products) ? booking.upsell_products : []
  const upsellTotal = upsellItems.reduce((sum, p) => sum + parseFloat(p.price || 0), 0)
@@ -1385,8 +1394,9 @@ function MainApp({ salon, onLogout }) {
    // not in eventContent where it could be a stale closure.
    const svcName = (() => {
      if (b.service_ids?.length > 1) {
-       const names = b.service_ids.map(id => services.find(s => s.id === id)?.name).filter(Boolean)
-       if (names.length) return names.join(', ')
+       const svcs = b.service_ids.map(id => services.find(s => s.id === id)).filter(Boolean)
+       const sorted = sortByCategory(svcs)
+       if (sorted.length) return sorted.map(s => s.name).join(', ')
      }
      return b.services?.name
        || services.find(s => (b.service_ids || []).includes(s.id))?.name
