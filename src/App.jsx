@@ -1680,6 +1680,31 @@ ${closedDayNames.map(d => `.fc .fc-day[data-dow="${d}"] { background: #f1f5f9 !i
  const start = new Date(year, month - 1, day, hours, minutes)
  const end = new Date(start.getTime() + totalMins * 60000)
  const svcTitle = selectedSvcs.map(s => s.name).join(' + ')
+ const startISO = start.toISOString()
+ const endISO   = end.toISOString()
+
+ // ── Conflict check for new bookings ──────────────────────────────────────
+ let resolvedTechId = form.technician_id
+ if (!editingId) {
+   const hasConflict = (tid) => bookings.some(b =>
+     b.technician_id === tid && b.status !== 'cancelled' &&
+     startISO < b.end_time && endISO > b.start_time
+   )
+   if (hasConflict(resolvedTechId)) {
+     const qualified = technicians.filter(t => {
+       const caps = techCaps[t.id]
+       return !caps || form.service_ids.every(id => caps.includes(id))
+     })
+     const freeTech = qualified.find(t => !hasConflict(t.id))
+     if (!freeTech) {
+       alert('All technicians are fully booked at this time. Please choose a different time slot.')
+       return
+     }
+     const busyName = technicians.find(t => t.id === resolvedTechId)?.name || 'That technician'
+     alert(`${busyName} is busy at this time — booking auto-assigned to ${freeTech.name}.`)
+     resolvedTechId = freeTech.id
+   }
+ }
 
  try {
  if (editingId) {
@@ -1717,16 +1742,17 @@ await axios.put(API + '/api/bookings/' + editingId, {
  })
  const bookRes = await axios.post(API + '/api/bookings', {
  customer_id: custRes.data.id,
- technician_id: form.technician_id,
+ technician_id: resolvedTechId,
  service_id: primarySvc?.id,
  service_ids: form.service_ids,
- start_time: start.toISOString(),
- end_time: end.toISOString(),
+ start_time: startISO,
+ end_time: endISO,
  notes: form.notes,
  source: 'manual',
  })
  setBookings(prev => [...prev, {
  ...bookRes.data,
+ technician_id: resolvedTechId,
  customers: { full_name: form.full_name, phone: form.phone, email: form.email },
  services: primarySvc ? { ...primarySvc, color, name: svcTitle } : null,
  }])
