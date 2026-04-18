@@ -1383,9 +1383,15 @@ function MainApp({ salon, onLogout }) {
    // Resolve service name: prefer Supabase FK join, fall back to service_ids
    // state lookup. Computed here (in useMemo) where services[] is a dep,
    // not in eventContent where it could be a stale closure.
-   const svcName = b.services?.name
-     || services.find(s => (b.service_ids || []).includes(s.id))?.name
-     || ''
+   const svcName = (() => {
+     if (b.service_ids?.length > 1) {
+       const names = b.service_ids.map(id => services.find(s => s.id === id)?.name).filter(Boolean)
+       if (names.length) return names.join(', ')
+     }
+     return b.services?.name
+       || services.find(s => (b.service_ids || []).includes(s.id))?.name
+       || ''
+   })()
    let title = (b.customers?.full_name || 'Guest') + (svcName ? ' · ' + svcName : '')
    if (isVisualiser && b.ai_prediction) title = (b.customers?.full_name || 'Guest') + ' · ' + b.ai_prediction
    return {
