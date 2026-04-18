@@ -2808,19 +2808,28 @@ function WidgetSettingsView({ salon }) {
   const widgetUrl = API + '/widget/widget-page.html?salon=' + encodeURIComponent(salonId) + '&name=' + encodeURIComponent(salonName)
   const embedCode = '<script src="' + API + '/widget/orbit-chat-widget.js?salon=' + salonId + '"><\/script>'
 
-  const [upsellEnabled, setUpsellEnabled] = useState(false)
-  const [products, setProducts]           = useState([])
-  const [saving, setSaving]               = useState(false)
-  const [copied, setCopied]               = useState(null)
+  const [upsellEnabled,      setUpsellEnabled]      = useState(false)
+  const [products,           setProducts]           = useState([])
+  const [groupUpsellEnabled, setGroupUpsellEnabled] = useState(false)
+  const [groupProducts,      setGroupProducts]      = useState([])
+  const [faqs,               setFaqs]               = useState([])
+  const [saving,             setSaving]             = useState(false)
+  const [copied,             setCopied]             = useState(null)
 
   useEffect(() => {
     if (!salonId) return
     Promise.all([
       axios.get(API + '/api/settings/widget_upsell_enabled').catch(() => ({ data: null })),
       axios.get(API + '/api/settings/widget_upsell_products').catch(() => ({ data: null })),
-    ]).then(([er, pr]) => {
+      axios.get(API + '/api/settings/widget_group_upsell_enabled').catch(() => ({ data: null })),
+      axios.get(API + '/api/settings/widget_group_upsell_products').catch(() => ({ data: null })),
+      axios.get(API + '/api/settings/widget_faqs').catch(() => ({ data: null })),
+    ]).then(([er, pr, ger, gpr, fr]) => {
       if (er.data?.value != null) setUpsellEnabled(er.data.value === 'true')
-      if (pr.data?.value) { try { setProducts(JSON.parse(pr.data.value)) } catch (_) {} }
+      if (pr.data?.value)  { try { setProducts(JSON.parse(pr.data.value)) } catch (_) {} }
+      if (ger.data?.value != null) setGroupUpsellEnabled(ger.data.value === 'true')
+      if (gpr.data?.value) { try { setGroupProducts(JSON.parse(gpr.data.value)) } catch (_) {} }
+      if (fr.data?.value)  { try { setFaqs(JSON.parse(fr.data.value)) } catch (_) {} }
     })
   }, [salonId])
 
@@ -2834,33 +2843,39 @@ function WidgetSettingsView({ salon }) {
     })
   }
 
-  function updateProduct(i, field, value) {
-    setProducts(prev => prev.map((p, idx) => idx !== i ? p : { ...p, [field]: value }))
-  }
-
-  function handleImageUpload(i, file) {
-    if (!file) return
-    const img = new Image()
-    const url = URL.createObjectURL(file)
-    img.onload = () => {
-      const MAX = 800
-      const scale = img.width > MAX ? MAX / img.width : 1
-      const canvas = document.createElement('canvas')
-      canvas.width  = Math.round(img.width  * scale)
-      canvas.height = Math.round(img.height * scale)
-      canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height)
-      URL.revokeObjectURL(url)
-      updateProduct(i, 'imageData', canvas.toDataURL('image/jpeg', 0.7))
+  function makeImageUploader(setter) {
+    return (i, file) => {
+      if (!file) return
+      const img = new Image(); const url = URL.createObjectURL(file)
+      img.onload = () => {
+        const MAX = 800; const scale = img.width > MAX ? MAX / img.width : 1
+        const canvas = document.createElement('canvas')
+        canvas.width = Math.round(img.width * scale); canvas.height = Math.round(img.height * scale)
+        canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height)
+        URL.revokeObjectURL(url)
+        setter(prev => prev.map((p, idx) => idx !== i ? p : { ...p, imageData: canvas.toDataURL('image/jpeg', 0.7) }))
+      }
+      img.src = url
     }
-    img.src = url
   }
+  const handleImageUpload      = makeImageUploader(setProducts)
+  const handleGroupImageUpload = makeImageUploader(setGroupProducts)
+
+  function updateProduct(setter) {
+    return (i, field, value) => setter(prev => prev.map((p, idx) => idx !== i ? p : { ...p, [field]: value }))
+  }
+  const updProd      = updateProduct(setProducts)
+  const updGroupProd = updateProduct(setGroupProducts)
 
   async function saveSettings() {
     setSaving(true)
     try {
       await Promise.all([
-        axios.post(API + '/api/settings/widget_upsell_enabled', { value: String(upsellEnabled) }),
-        axios.post(API + '/api/settings/widget_upsell_products', { value: JSON.stringify(products) }),
+        axios.post(API + '/api/settings/widget_upsell_enabled',        { value: String(upsellEnabled) }),
+        axios.post(API + '/api/settings/widget_upsell_products',        { value: JSON.stringify(products) }),
+        axios.post(API + '/api/settings/widget_group_upsell_enabled',   { value: String(groupUpsellEnabled) }),
+        axios.post(API + '/api/settings/widget_group_upsell_products',  { value: JSON.stringify(groupProducts) }),
+        axios.post(API + '/api/settings/widget_faqs',                   { value: JSON.stringify(faqs) }),
       ])
     } catch (err) { alert('Save failed: ' + (err.response?.data?.error || err.message)) }
     setSaving(false)
@@ -2871,6 +2886,38 @@ function WidgetSettingsView({ salon }) {
   const secSub   = { fontSize:12, color:'#94a3b8', marginBottom:12 }
   const copyRow  = { display:'flex', gap:8, alignItems:'center' }
   const codeBox  = { ...inp, background:'#f8fafc', flex:1, fontFamily:'monospace', fontSize:11, color:'#475569', cursor:'default' }
+  const toggleBtn = (on, toggle) => (
+    <button onClick={toggle} style={{ padding:'7px 16px', borderRadius:20, border:'none', fontWeight:800, fontSize:12, cursor:'pointer', background: on ? '#059669' : '#e2e8f0', color: on ? '#fff' : '#64748b' }}>
+      {on ? 'Enabled' : 'Disabled'}
+    </button>
+  )
+
+  function ProductList({ items, setItems, uploadFn, updateFn, prefix }) {
+    return (
+      <div style={{ display:'flex', flexDirection:'column', gap:10, marginTop:4 }}>
+        {items.map((p, i) => (
+          <div key={i} style={{ display:'flex', gap:10, alignItems:'flex-start', padding:12, background:'#f8fafc', borderRadius:10, border:'1px solid #e2e8f0' }}>
+            <div onClick={() => document.getElementById(prefix + i)?.click()}
+              style={{ width:60, height:60, borderRadius:8, background:'#e2e8f0', overflow:'hidden', flexShrink:0, display:'flex', alignItems:'center', justifyContent:'center', cursor:'pointer' }}>
+              {p.imageData ? <img src={p.imageData} style={{ width:'100%', height:'100%', objectFit:'cover' }} /> : <span style={{ fontSize:11, color:'#94a3b8', lineHeight:1.2, textAlign:'center' }}>Add<br/>image</span>}
+              <input id={prefix + i} type="file" accept="image/*" style={{ display:'none' }} onChange={e => uploadFn(i, e.target.files[0])} />
+            </div>
+            <div style={{ flex:1, display:'flex', flexDirection:'column', gap:6 }}>
+              <input style={{ ...inp, fontSize:12 }} placeholder="Product name" value={p.name} onChange={e => updateFn(i, 'name', e.target.value)} />
+              <div style={{ display:'flex', gap:6 }}>
+                <input style={{ ...inp, fontSize:12, flex:'0 0 90px' }} placeholder="Price" value={p.price} onChange={e => updateFn(i, 'price', e.target.value)} />
+                <input style={{ ...inp, fontSize:12, flex:1 }} placeholder="Buy URL (optional)" value={p.buyUrl||''} onChange={e => updateFn(i, 'buyUrl', e.target.value)} />
+              </div>
+            </div>
+            <button onClick={() => setItems(prev => prev.filter((_, idx) => idx !== i))} style={{ background:'none', border:'none', cursor:'pointer', color:'#94a3b8', fontSize:18, padding:'0 2px', flexShrink:0 }}>×</button>
+          </div>
+        ))}
+        {items.length < 6 && (
+          <button onClick={() => setItems(p => [...p, { name:'', price:'', imageData:'', buyUrl:'' }])} style={{ ...btnGhost, fontSize:12, padding:'8px 14px', alignSelf:'flex-start' }}>+ Add Product</button>
+        )}
+      </div>
+    )
+  }
 
   return (
     <div style={{ flex:1, overflowY:'auto', padding:32 }}>
@@ -2882,8 +2929,7 @@ function WidgetSettingsView({ salon }) {
           <div style={secSub}>Share this link — opens a hosted booking page with the chat widget.</div>
           <div style={copyRow}>
             <input readOnly style={codeBox} value={widgetUrl} onClick={e => e.target.select()} />
-            <button onClick={() => copy(widgetUrl, 'link')}
-              style={{ ...btnGhost, padding:'8px 14px', fontSize:12, background: copied==='link' ? '#059669' : '#fff', color: copied==='link' ? '#fff' : '#0f172a', borderColor: copied==='link' ? '#059669' : '#e2e8f0' }}>
+            <button onClick={() => copy(widgetUrl, 'link')} style={{ ...btnGhost, padding:'8px 14px', fontSize:12, background: copied==='link' ? '#059669' : '#fff', color: copied==='link' ? '#fff' : '#0f172a', borderColor: copied==='link' ? '#059669' : '#e2e8f0' }}>
               {copied === 'link' ? 'Copied!' : 'Copy'}
             </button>
           </div>
@@ -2894,64 +2940,65 @@ function WidgetSettingsView({ salon }) {
           <div style={secSub}>Paste into any webpage to embed the booking widget on your site.</div>
           <div style={copyRow}>
             <input readOnly style={codeBox} value={embedCode} onClick={e => e.target.select()} />
-            <button onClick={() => copy(embedCode, 'embed')}
-              style={{ ...btnGhost, padding:'8px 14px', fontSize:12, background: copied==='embed' ? '#059669' : '#fff', color: copied==='embed' ? '#fff' : '#0f172a', borderColor: copied==='embed' ? '#059669' : '#e2e8f0' }}>
+            <button onClick={() => copy(embedCode, 'embed')} style={{ ...btnGhost, padding:'8px 14px', fontSize:12, background: copied==='embed' ? '#059669' : '#fff', color: copied==='embed' ? '#fff' : '#0f172a', borderColor: copied==='embed' ? '#059669' : '#e2e8f0' }}>
               {copied === 'embed' ? 'Copied!' : 'Copy'}
             </button>
           </div>
         </div>
 
+        {/* ── Post-Booking Upsell ── */}
         <div style={card}>
           <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start' }}>
-            <div>
-              <div style={secTitle}>Post-Booking Upsell</div>
-              <div style={secSub}>Show product cards after a booking is confirmed in the widget.</div>
-            </div>
-            <button onClick={() => setUpsellEnabled(e => !e)}
-              style={{ padding:'7px 16px', borderRadius:20, border:'none', fontWeight:800, fontSize:12, cursor:'pointer',
-                background: upsellEnabled ? '#059669' : '#e2e8f0', color: upsellEnabled ? '#fff' : '#64748b' }}>
-              {upsellEnabled ? 'Enabled' : 'Disabled'}
-            </button>
+            <div><div style={secTitle}>Post-Booking Upsell</div><div style={secSub}>Show product cards after a single booking is confirmed in the widget.</div></div>
+            {toggleBtn(upsellEnabled, () => setUpsellEnabled(e => !e))}
           </div>
         </div>
-
         {upsellEnabled && (
           <div style={card}>
             <div style={secTitle}>Upsell Products</div>
             <div style={secSub}>Up to 6 products shown after booking. Click the image area to upload a photo.</div>
-            <div style={{ display:'flex', flexDirection:'column', gap:10, marginTop:4 }}>
-              {products.map((p, i) => (
-                <div key={i} style={{ display:'flex', gap:10, alignItems:'flex-start', padding:12, background:'#f8fafc', borderRadius:10, border:'1px solid #e2e8f0' }}>
-                  <div onClick={() => document.getElementById('img-' + i)?.click()}
-                    style={{ width:60, height:60, borderRadius:8, background:'#e2e8f0', overflow:'hidden', flexShrink:0, display:'flex', alignItems:'center', justifyContent:'center', cursor:'pointer', fontSize:22 }}>
-                    {p.imageData ? <img src={p.imageData} style={{ width:'100%', height:'100%', objectFit:'cover' }} /> : <span style={{ fontSize:11, color:'#94a3b8', lineHeight:1.2, textAlign:'center' }}>Add<br/>image</span>}
-                    <input id={'img-' + i} type="file" accept="image/*" style={{ display:'none' }}
-                      onChange={e => handleImageUpload(i, e.target.files[0])} />
-                  </div>
-                  <div style={{ flex:1, display:'flex', flexDirection:'column', gap:6 }}>
-                    <input style={{ ...inp, fontSize:12 }} placeholder="Product name" value={p.name}
-                      onChange={e => updateProduct(i, 'name', e.target.value)} />
-                    <div style={{ display:'flex', gap:6 }}>
-                      <input style={{ ...inp, fontSize:12, flex:'0 0 90px' }} placeholder="Price" value={p.price}
-                        onChange={e => updateProduct(i, 'price', e.target.value)} />
-                      <input style={{ ...inp, fontSize:12, flex:1 }} placeholder="Buy URL (optional)" value={p.buyUrl}
-                        onChange={e => updateProduct(i, 'buyUrl', e.target.value)} />
-                    </div>
-                  </div>
-                  <button onClick={() => setProducts(prev => prev.filter((_, idx) => idx !== i))}
-                    style={{ background:'none', border:'none', cursor:'pointer', color:'#94a3b8', fontSize:18, padding:'0 2px', flexShrink:0 }}>×</button>
-                </div>
-              ))}
-              {products.length < 6 && (
-                <button onClick={() => setProducts(p => [...p, { name:'', price:'', imageData:'', buyUrl:'' }])}
-                  style={{ ...btnGhost, fontSize:12, padding:'8px 14px', alignSelf:'flex-start' }}>+ Add Product</button>
-              )}
-            </div>
+            <ProductList items={products} setItems={setProducts} uploadFn={handleImageUpload} updateFn={updProd} prefix="img-" />
           </div>
         )}
 
-        <button onClick={saveSettings} disabled={saving}
-          style={{ ...btnPrimary, opacity: saving ? 0.7 : 1 }}>
+        {/* ── Group Booking Upsell ── */}
+        <div style={card}>
+          <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start' }}>
+            <div><div style={secTitle}>Group Booking Upsell</div><div style={secSub}>Show product cards after a group booking is confirmed in the widget.</div></div>
+            {toggleBtn(groupUpsellEnabled, () => setGroupUpsellEnabled(e => !e))}
+          </div>
+        </div>
+        {groupUpsellEnabled && (
+          <div style={card}>
+            <div style={secTitle}>Group Upsell Products</div>
+            <div style={secSub}>Up to 6 products shown after group booking. Click the image area to upload a photo.</div>
+            <ProductList items={groupProducts} setItems={setGroupProducts} uploadFn={handleGroupImageUpload} updateFn={updGroupProd} prefix="gimg-" />
+          </div>
+        )}
+
+        {/* ── FAQs ── */}
+        <div style={card}>
+          <div style={secTitle}>Frequently Asked Questions</div>
+          <div style={secSub}>FAQs shown in the widget when customers tap "FAQs". Up to 10 entries.</div>
+          <div style={{ display:'flex', flexDirection:'column', gap:10, marginTop:4 }}>
+            {faqs.map((faq, i) => (
+              <div key={i} style={{ display:'flex', gap:8, alignItems:'flex-start', padding:12, background:'#f8fafc', borderRadius:10, border:'1px solid #e2e8f0' }}>
+                <div style={{ flex:1, display:'flex', flexDirection:'column', gap:6 }}>
+                  <input style={{ ...inp, fontSize:12 }} placeholder="Question" value={faq.question}
+                    onChange={e => setFaqs(prev => prev.map((f, idx) => idx !== i ? f : { ...f, question: e.target.value }))} />
+                  <textarea style={{ ...inp, fontSize:12, resize:'vertical', minHeight:56 }} placeholder="Answer" value={faq.answer}
+                    onChange={e => setFaqs(prev => prev.map((f, idx) => idx !== i ? f : { ...f, answer: e.target.value }))} />
+                </div>
+                <button onClick={() => setFaqs(prev => prev.filter((_, idx) => idx !== i))} style={{ background:'none', border:'none', cursor:'pointer', color:'#94a3b8', fontSize:18, padding:'0 2px', flexShrink:0, marginTop:2 }}>×</button>
+              </div>
+            ))}
+            {faqs.length < 10 && (
+              <button onClick={() => setFaqs(f => [...f, { question:'', answer:'' }])} style={{ ...btnGhost, fontSize:12, padding:'8px 14px', alignSelf:'flex-start' }}>+ Add FAQ</button>
+            )}
+          </div>
+        </div>
+
+        <button onClick={saveSettings} disabled={saving} style={{ ...btnPrimary, opacity: saving ? 0.7 : 1 }}>
           {saving ? 'Saving…' : 'Save Settings'}
         </button>
       </div>
