@@ -154,6 +154,19 @@ function CheckoutModal({ booking, services, onClose, onComplete, receiptData, co
  const [receiptSent, setReceiptSent] = useState(false)
  const [gcValidation, setGcValidation] = useState({}) // index → { ok, remaining_balance, error }
  const [gcValidating, setGcValidating] = useState({})
+ const [gcSuggestion, setGcSuggestion] = useState(null) // { code, remaining_balance }
+
+ // Auto-detect gift card for this customer on mount
+ useEffect(() => {
+   if (initDone) return // already checked out
+   const phone = booking.customers?.phone
+   const email = booking.customers?.email
+   if (!phone && !email) return
+   const params = phone ? '?phone=' + encodeURIComponent(phone) : '?email=' + encodeURIComponent(email)
+   axios.get(API + '/api/gift-cards/by-customer' + params)
+     .then(r => { if (r.data?.code) setGcSuggestion(r.data) })
+     .catch(() => {})
+ }, [])
 
  async function validateGiftCard(i) {
    const code = (splits[i]?.gift_card_code || '').trim()
@@ -362,6 +375,24 @@ function CheckoutModal({ booking, services, onClose, onComplete, receiptData, co
  setTotal(v)
  if (splits.length === 1) setSplits([{ ...splits[0], amount: v }])
  }} />
+ {gcSuggestion && !done && !splits.some(s => s.method === 'Gift Card') && (
+   <div style={{ margin:'14px 0 4px', padding:'10px 14px', background:'#fdf6ee', border:'1px solid #f4d9b0', borderRadius:10, display:'flex', alignItems:'center', justifyContent:'space-between', gap:10 }}>
+     <div>
+       <div style={{ fontSize:12, fontWeight:800, color:'#92400e' }}>🎁 Gift card detected</div>
+       <div style={{ fontSize:11, color:'#b45309', marginTop:2 }}>Code <strong>{gcSuggestion.code}</strong> — £{parseFloat(gcSuggestion.remaining_balance).toFixed(2)} remaining</div>
+     </div>
+     <button onClick={() => {
+       const gcAmount = parseFloat(Math.min(gcSuggestion.remaining_balance, remaining > 0 ? remaining : gcSuggestion.remaining_balance).toFixed(2))
+       setSplits(prev => {
+         const updated = prev.map((s, i) => i === 0 ? { ...s, amount: parseFloat(Math.max(0, total - gcAmount).toFixed(2)) } : s)
+         return [...updated, { method: 'Gift Card', gift_card_code: gcSuggestion.code, amount: gcAmount }]
+       })
+       setGcSuggestion(null)
+     }} style={{ fontSize:11, padding:'6px 12px', borderRadius:8, border:'none', background:'#92400e', color:'#fff', fontWeight:800, cursor:'pointer', whiteSpace:'nowrap' }}>
+       Apply
+     </button>
+   </div>
+ )}
  <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginTop:16, marginBottom:8 }}>
  <span style={{ fontSize:11, fontWeight:800, color:'#64748b', textTransform:'uppercase', letterSpacing:0.8 }}>Payment Method</span>
  <button onClick={addSplit} style={{ fontSize:12, padding:'4px 12px', borderRadius:8, border:'1px solid #e2e8f0', background:'#f8fafc', cursor:'pointer', fontWeight:700 }}>+ Split Payment</button>
@@ -473,7 +504,7 @@ function OpeningHoursModal({ hours, onSave, onClose }) {
 }
 
 // Inbox View 
-function InboxView({ country }) {
+function InboxView({ country, salonId }) {
  const isMobile = useIsMobile()
  const [conversations, setConversations] = useState([])
  const [activeConv, setActiveConv] = useState(null)
@@ -483,220 +514,339 @@ function InboxView({ country }) {
  const [loading, setLoading] = useState(false)
  const [channel, setChannel] = useState('all')
  const [folder, setFolder] = useState('all')
+ // Dynamic folders
+ const [folders, setFolders] = useState([])
+ const [showFolderMgr, setShowFolderMgr] = useState(false)
+ const [newFolderName, setNewFolderName] = useState('')
+ const [renamingId, setRenamingId] = useState(null)
+ const [renamingName, setRenamingName] = useState('')
+ // Translations: { msgId: { text, showing } }
+ const [translations, setTranslations] = useState({})
+ const [translating, setTranslating] = useState({})
+ // AI reply suggestions
+ const [suggestions, setSuggestions] = useState([])
+ const [loadingSugg, setLoadingSugg] = useState(false)
+ // Email settings panel
+ const [showEmailSettings, setShowEmailSettings] = useState(false)
  const bottomRef = useRef(null)
 
- useEffect(() => { loadConversations() }, [])
- useEffect(() => { if (activeConv) loadMessages(activeConv.id) }, [activeConv])
+ useEffect(() => { loadFolders(); loadConversations() }, [])
+ useEffect(() => {
+   if (activeConv) {
+     loadMessages(activeConv.id)
+     setSuggestions([])
+     loadSuggestions(activeConv.id)
+   }
+ }, [activeConv?.id])
  useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [messages])
 
- async function loadConversations() {
- try {
-   const { data } = await axios.get(API + '/api/conversations')
-   console.log('[Inbox] raw API response:', data)
-   console.log('[Inbox] email conversations:', (data || []).filter(c => c.channel === 'email'))
-   setConversations(data || [])
- } catch (err) {
-   console.error('[Inbox] loadConversations error:', err)
+ async function loadFolders() {
+   try { const { data } = await axios.get(API + '/api/inbox/folders'); setFolders(data || []) } catch {}
  }
+ async function addFolder() {
+   if (!newFolderName.trim()) return
+   try {
+     const { data } = await axios.post(API + '/api/inbox/folders', { name: newFolderName.trim() })
+     setFolders(prev => [...prev, data]); setNewFolderName('')
+   } catch (err) { alert(err.response?.data?.error || 'Could not add folder') }
+ }
+ async function renameFolder(id) {
+   if (!renamingName.trim()) return
+   try {
+     const { data } = await axios.patch(API + '/api/inbox/folders/' + id, { name: renamingName.trim() })
+     setFolders(prev => prev.map(f => f.id === id ? data : f)); setRenamingId(null)
+   } catch {}
+ }
+ async function deleteFolder(id) {
+   if (!window.confirm('Delete this folder? Conversations in it will become unassigned.')) return
+   try {
+     await axios.delete(API + '/api/inbox/folders/' + id)
+     setFolders(prev => prev.filter(f => f.id !== id))
+     if (folder === id) setFolder('all')
+   } catch {}
+ }
+ async function loadConversations() {
+   try { const { data } = await axios.get(API + '/api/conversations'); setConversations(data || []) }
+   catch (err) { console.error('[Inbox] loadConversations error:', err) }
  }
  async function loadMessages(convId) {
- try {
-   const { data } = await axios.get(API + '/api/conversations/' + convId + '/messages')
-   console.log('[Inbox] messages raw:', data)
-   if (data?.length) console.log('[Inbox] first message keys:', Object.keys(data[0]), 'values:', data[0])
-   setMessages(data || [])
- } catch (err) { console.error('[Inbox] loadMessages error:', err) }
+   try { const { data } = await axios.get(API + '/api/conversations/' + convId + '/messages'); setMessages(data || []) }
+   catch {}
+ }
+ async function loadSuggestions(convId) {
+   setLoadingSugg(true)
+   try { const { data } = await axios.post(API + '/api/ai/reply-suggestions', { conversation_id: convId }); setSuggestions(data.suggestions || []) }
+   catch {}
+   setLoadingSugg(false)
  }
  async function sendReply() {
- if (!reply.trim() || !activeConv) return
- setLoading(true)
- const text = reply
- const optimistic = { id: 'tmp-' + Date.now(), body: text, sender_type: 'staff', created_at: new Date().toISOString() }
- setMessages(prev => [...prev, optimistic])
- setReply('')
- try {
-   if (activeConv.channel === 'email') {
-     await axios.post(API + '/api/inbox/email-reply', { conversation_id: activeConv.id, body: text, subject: replySubject.trim() })
-     setReplySubject('')
-   } else {
-     await axios.post(API + '/api/conversations/' + activeConv.id + '/messages', { body: text, sender_type: 'staff' })
-   }
- } catch {}
- setLoading(false)
- loadConversations()
+   if (!reply.trim() || !activeConv) return
+   setLoading(true)
+   const text = reply
+   setMessages(prev => [...prev, { id: 'tmp-' + Date.now(), body: text, sender_type: 'staff', created_at: new Date().toISOString() }])
+   setReply(''); setSuggestions([])
+   try {
+     if (activeConv.channel === 'email') {
+       await axios.post(API + '/api/inbox/email-reply', { conversation_id: activeConv.id, body: text, subject: replySubject.trim() })
+       setReplySubject('')
+     } else {
+       await axios.post(API + '/api/conversations/' + activeConv.id + '/messages', { body: text, sender_type: 'staff' })
+     }
+   } catch {}
+   setLoading(false); loadConversations()
  }
- async function moveFolder(convId, newFolder) {
- try {
- await axios.patch(API + '/api/conversations/' + convId + '/folder', { folder: newFolder })
- setConversations(prev => prev.map(c => c.id === convId ? { ...c, folder: newFolder } : c))
- if (activeConv?.id === convId) setActiveConv(prev => ({ ...prev, folder: newFolder }))
- } catch {}
+ async function moveFolder(convId, folderId) {
+   try {
+     await axios.patch(API + '/api/conversations/' + convId + '/folder', { folder: folderId })
+     setConversations(prev => prev.map(c => c.id === convId ? { ...c, folder: folderId } : c))
+     if (activeConv?.id === convId) setActiveConv(prev => ({ ...prev, folder: folderId }))
+   } catch {}
+ }
+ async function translateMessage(msgId, text) {
+   const tr = translations[msgId]
+   if (tr?.text) { setTranslations(prev => ({ ...prev, [msgId]: { ...tr, showing: !tr.showing } })); return }
+   setTranslating(prev => ({ ...prev, [msgId]: true }))
+   try {
+     const { data } = await axios.post(API + '/api/ai/translate', { text })
+     setTranslations(prev => ({ ...prev, [msgId]: { text: data.translated, showing: true } }))
+   } catch {}
+   setTranslating(prev => ({ ...prev, [msgId]: false }))
  }
 
  const CHANNEL_COLORS = { zalo: '#0068ff', messenger: '#00b2ff', instagram: '#e1306c', website: '#c9a96e', email: '#10b981' }
  const CHANNEL_LABELS = { zalo: 'Zalo', messenger: 'Messenger', instagram: 'Instagram', website: 'Chat Widget', email: 'Email' }
  const CHANNELS = ['all', 'website', 'messenger', 'instagram', 'email']
- const FOLDERS = ['all', 'inquiries', 'feedback']
- const FOLDER_LABELS = { all: 'All', inquiries: 'General Inquiries', feedback: 'Feedback' }
- const FOLDER_ICONS = { all: '', inquiries: '', feedback: '' }
-
+ const folderName = (id) => folders.find(f => f.id === id)?.name || id
  const filtered = conversations.filter(c => {
- const chMatch = channel === 'all' || c.channel === channel
- // folder filter only applies to website conversations; email/messenger/etc always pass
- const folderMatch = c.channel !== 'website' || folder === 'all' || c.folder === folder || (folder === 'inquiries' && !c.folder)
- return chMatch && folderMatch
+   const chMatch = channel === 'all' || c.channel === channel
+   const folderMatch = folder === 'all' || c.folder === folder
+   return chMatch && folderMatch
  })
-
- const tabStyle = (active) => ({
- padding: '6px 12px', borderRadius: 8, border: 'none', cursor: 'pointer',
- fontWeight: 700, fontSize: 12,
- background: active ? '#0f172a' : '#f1f5f9',
- color: active ? '#fff' : '#64748b',
- })
-
- // On mobile: show list XOR detail; on desktop: side-by-side
- const showList   = !isMobile || !activeConv
- const showDetail = !!activeConv
+ const showList = !isMobile || !activeConv
+ const forwardingAddr = salonId ? `inbox+${salonId}@orbit-calendar.co.uk` : 'inbox+<salon-id>@orbit-calendar.co.uk'
 
  return (
- <div style={{ display: 'flex', height: '100%', overflow: 'hidden' }}>
- {/* List panel */}
+ <div style={{ display:'flex', height:'100%', overflow:'hidden' }}>
  {showList && (
- <div style={{ width: !isMobile && activeConv ? 340 : undefined, flex: !isMobile && activeConv ? undefined : 1, borderRight: !isMobile && activeConv ? '1px solid #e2e8f0' : 'none', display: 'flex', flexDirection: 'column', background: '#fff' }}>
- <div style={{ padding: '14px 16px', borderBottom: '1px solid #e2e8f0' }}>
- <div style={{ fontWeight: 900, fontSize: 15, marginBottom: 10 }}>Inbox</div>
+ <div style={{ width: !isMobile && activeConv ? 340 : undefined, flex: !isMobile && activeConv ? undefined : 1, borderRight: !isMobile && activeConv ? '1px solid #e2e8f0' : 'none', display:'flex', flexDirection:'column', background:'#fff' }}>
 
- {/* Channel dropdown */}
- <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
- <select value={channel} onChange={e => { const v = e.target.value; setChannel(v); if (v !== 'all' && v !== 'website') setFolder('all') }}
- style={{ flex: 1, padding: '7px 10px', borderRadius: 8, border: '1px solid #e2e8f0', fontSize: 13, fontWeight: 600, background: '#fff', outline: 'none', cursor: 'pointer' }}>
- <option value="all">All Channels</option>
- {CHANNELS.filter(c => c !== 'all').map(ch => (
- <option key={ch} value={ch}>{CHANNEL_LABELS[ch] || ch}</option>
- ))}
- </select>
- {(channel === 'all' || channel === 'website') && (
- <select value={folder} onChange={e => setFolder(e.target.value)}
- style={{ flex: 1, padding: '7px 10px', borderRadius: 8, border: '1px solid #e2e8f0', fontSize: 13, fontWeight: 600, background: '#fff', outline: 'none', cursor: 'pointer' }}>
- {FOLDERS.map(f => (
- <option key={f} value={f}>{FOLDER_LABELS[f]}</option>
- ))}
- </select>
- )}
- </div>
- </div>
-
- <div style={{ flex: 1, overflowY: 'auto' }}>
- {filtered.length === 0 && (
- <div style={{ padding: 24, textAlign: 'center', color: '#94a3b8', fontSize: 13 }}>No messages yet.</div>
- )}
- {filtered.map(c => (
- <div key={c.id} onClick={() => setActiveConv(c)}
- style={{ padding: '12px 16px', cursor: 'pointer', borderBottom: '1px solid #f1f5f9', background: activeConv?.id === c.id ? '#f0f7ff' : '#fff' }}>
- <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 3 }}>
- <div style={{ fontWeight: 800, fontSize: 13 }}>{c.channel === 'email' && c.subject ? c.subject : (c.customer_name || 'Unknown')}</div>
- <div style={{ fontSize: 10, fontWeight: 800, padding: '2px 7px', borderRadius: 8, background: CHANNEL_COLORS[c.channel] || '#64748b', color: '#fff' }}>
- {CHANNEL_LABELS[c.channel] || c.channel}
- </div>
- </div>
- {c.channel === 'email' && c.customer_name && (
- <div style={{ fontSize: 11, color: '#64748b', fontWeight: 600, marginBottom: 2 }}>{c.customer_name}</div>
- )}
- {c.folder && c.folder !== 'inquiries' && (
- <div style={{ fontSize: 10, color: '#c9a96e', fontWeight: 700, marginBottom: 2 }}>
- {FOLDER_ICONS[c.folder]} {FOLDER_LABELS[c.folder]}
- </div>
- )}
- <div style={{ fontSize: 12, color: '#64748b', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{c.last_message || '—'}</div>
- <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 3 }}>
- {c.last_message_at ? new Date(c.last_message_at).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : ''}
- </div>
- </div>
- ))}
- </div>
+ {/* Folder manager panel */}
+ {showFolderMgr && (
+ <div style={{ padding:'12px 16px', background:'#f8fafc', borderBottom:'2px solid #c9a96e' }}>
+   <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:10 }}>
+     <span style={{ fontWeight:800, fontSize:12, color:'#0f172a', textTransform:'uppercase', letterSpacing:0.5 }}>Manage Folders</span>
+     <button onClick={() => setShowFolderMgr(false)} style={{ background:'none', border:'none', color:'#94a3b8', cursor:'pointer', fontSize:18, lineHeight:1 }}>×</button>
+   </div>
+   {folders.map(f => (
+     <div key={f.id} style={{ display:'flex', alignItems:'center', gap:6, marginBottom:6 }}>
+       {renamingId === f.id ? (
+         <>
+           <input value={renamingName} onChange={e => setRenamingName(e.target.value)}
+             onKeyDown={e => e.key === 'Enter' && renameFolder(f.id)}
+             autoFocus style={{ flex:1, padding:'4px 8px', borderRadius:6, border:'1px solid #c9a96e', fontSize:12, outline:'none' }} />
+           <button onClick={() => renameFolder(f.id)} style={{ padding:'3px 9px', fontSize:11, borderRadius:6, border:'none', background:'#0f172a', color:'#fff', cursor:'pointer', fontWeight:700 }}>Save</button>
+           <button onClick={() => setRenamingId(null)} style={{ padding:'3px 8px', fontSize:11, borderRadius:6, border:'1px solid #e2e8f0', background:'#fff', cursor:'pointer' }}>✕</button>
+         </>
+       ) : (
+         <>
+           <span style={{ flex:1, fontSize:13, fontWeight:600 }}>📁 {f.name}</span>
+           <button onClick={() => { setRenamingId(f.id); setRenamingName(f.name) }} style={{ padding:'2px 9px', fontSize:11, borderRadius:6, border:'1px solid #e2e8f0', background:'#fff', cursor:'pointer' }}>Rename</button>
+           <button onClick={() => deleteFolder(f.id)} style={{ padding:'2px 8px', fontSize:11, borderRadius:6, border:'none', background:'#fee2e2', color:'#ef4444', cursor:'pointer', fontWeight:800 }}>✕</button>
+         </>
+       )}
+     </div>
+   ))}
+   <div style={{ display:'flex', gap:6, marginTop:8 }}>
+     <input value={newFolderName} onChange={e => setNewFolderName(e.target.value)}
+       onKeyDown={e => e.key === 'Enter' && addFolder()}
+       placeholder="New folder name…" style={{ flex:1, padding:'6px 10px', borderRadius:8, border:'1px solid #e2e8f0', fontSize:12, outline:'none' }} />
+     <button onClick={addFolder} style={{ padding:'6px 14px', borderRadius:8, border:'none', background:'#0f172a', color:'#fff', fontSize:12, fontWeight:700, cursor:'pointer' }}>Add</button>
+   </div>
  </div>
  )}
 
- {/* Conversation pane */}
- {showDetail && activeConv && (
- <div style={{ flex: 1, display: 'flex', flexDirection: 'column', background: '#f8fafc' }}>
- <>
- <div style={{ padding: '12px 20px', background: '#fff', borderBottom: '1px solid #e2e8f0', display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
- {isMobile && (
-   <button onClick={() => setActiveConv(null)} style={{ background:'none', border:'none', fontSize:13, fontWeight:700, color:'#64748b', cursor:'pointer', display:'flex', alignItems:'center', gap:4, padding:'0 4px 0 0', minHeight:44 }}>← Back</button>
- )}
- <div style={{ fontWeight: 900, fontSize: 15 }}>{activeConv.channel === 'email' && activeConv.subject ? activeConv.subject : activeConv.customer_name}</div>
- {activeConv.channel === 'email' && activeConv.customer_email
-   ? <div style={{ fontSize: 12, color: '#64748b' }}>{activeConv.customer_name} &lt;{activeConv.customer_email}&gt;</div>
-   : activeConv.customer_phone && <div style={{ fontSize: 12, color: '#64748b' }}>{activeConv.customer_phone}</div>
- }
- <div style={{ fontSize: 11, fontWeight: 800, padding: '2px 10px', borderRadius: 10, background: CHANNEL_COLORS[activeConv.channel] || '#64748b', color: '#fff' }}>
- {CHANNEL_LABELS[activeConv.channel] || activeConv.channel}
- </div>
- {/* Move folder button — only for website conversations */}
- {activeConv.channel === 'website' && (
- <div style={{ marginLeft: 'auto', display: 'flex', gap: 6 }}>
- {FOLDERS.filter(f => f !== 'all' && f !== activeConv.folder).map(f => (
- <button key={f} onClick={() => moveFolder(activeConv.id, f)}
- style={{ fontSize: 11, padding: '4px 10px', borderRadius: 8, border: '1px solid #e2e8f0', background: '#f8fafc', cursor: 'pointer', fontWeight: 700, color: '#64748b' }}>
- Move to {FOLDER_LABELS[f]}
- </button>
- ))}
+ {/* Email settings panel */}
+ {showEmailSettings && (
+ <div style={{ padding:'12px 16px', background:'#fffbeb', borderBottom:'2px solid #f59e0b' }}>
+   <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:8 }}>
+     <span style={{ fontWeight:800, fontSize:12, color:'#92400e', textTransform:'uppercase', letterSpacing:0.5 }}>✉️ Email Forwarding</span>
+     <button onClick={() => setShowEmailSettings(false)} style={{ background:'none', border:'none', color:'#94a3b8', cursor:'pointer', fontSize:18, lineHeight:1 }}>×</button>
+   </div>
+   <p style={{ fontSize:12, color:'#78350f', lineHeight:1.6, marginBottom:10 }}>
+     Forward your salon email to the address below — inbound emails will appear here automatically.
+   </p>
+   <div style={{ display:'flex', gap:6, alignItems:'center', background:'#fff', border:'1px solid #fde68a', borderRadius:8, padding:'8px 10px', marginBottom:10 }}>
+     <code style={{ flex:1, fontSize:11, color:'#0f172a', fontFamily:'monospace', wordBreak:'break-all' }}>{forwardingAddr}</code>
+     <button onClick={() => { try { navigator.clipboard.writeText(forwardingAddr) } catch {} }}
+       style={{ padding:'4px 10px', borderRadius:6, border:'none', background:'#f59e0b', color:'#fff', fontSize:11, fontWeight:700, cursor:'pointer', whiteSpace:'nowrap' }}>Copy</button>
+   </div>
+   <ol style={{ paddingLeft:16, margin:0, fontSize:11, color:'#92400e', lineHeight:1.7 }}>
+     <li>In Gmail/Outlook go to <strong>Settings → Forwarding</strong></li>
+     <li>Add <strong>{forwardingAddr}</strong> as a forwarding address</li>
+     <li>Confirm the verification email from your provider</li>
+     <li>Inbound emails will appear in this Inbox within seconds</li>
+   </ol>
  </div>
  )}
+
+ <div style={{ padding:'14px 16px', borderBottom:'1px solid #e2e8f0', flexShrink:0 }}>
+   <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:10 }}>
+     <span style={{ fontWeight:900, fontSize:15 }}>Inbox</span>
+     <div style={{ display:'flex', gap:5 }}>
+       <button onClick={() => { setShowEmailSettings(v => !v); setShowFolderMgr(false) }}
+         title="Email forwarding setup"
+         style={{ padding:'4px 8px', borderRadius:7, border:'1px solid #e2e8f0', background: showEmailSettings ? '#fffbeb' : '#f8fafc', fontSize:14, cursor:'pointer' }}>✉️</button>
+       <button onClick={() => { setShowFolderMgr(v => !v); setShowEmailSettings(false) }}
+         title="Manage folders"
+         style={{ padding:'4px 8px', borderRadius:7, border:'1px solid #e2e8f0', background: showFolderMgr ? '#f0f7ff' : '#f8fafc', fontSize:14, cursor:'pointer' }}>🗂</button>
+     </div>
+   </div>
+   <div style={{ display:'flex', gap:8, marginBottom:0 }}>
+     <select value={channel} onChange={e => setChannel(e.target.value)}
+       style={{ flex:1, padding:'7px 10px', borderRadius:8, border:'1px solid #e2e8f0', fontSize:12, fontWeight:600, background:'#fff', outline:'none', cursor:'pointer' }}>
+       <option value="all">All Channels</option>
+       {CHANNELS.filter(c => c !== 'all').map(ch => <option key={ch} value={ch}>{CHANNEL_LABELS[ch] || ch}</option>)}
+     </select>
+     <select value={folder} onChange={e => setFolder(e.target.value)}
+       style={{ flex:1, padding:'7px 10px', borderRadius:8, border:'1px solid #e2e8f0', fontSize:12, fontWeight:600, background:'#fff', outline:'none', cursor:'pointer' }}>
+       <option value="all">All Folders</option>
+       {folders.map(f => <option key={f.id} value={f.id}>{f.name}</option>)}
+     </select>
+   </div>
  </div>
 
- <div style={{ flex: 1, overflowY: 'auto', padding: 20, display: 'flex', flexDirection: 'column', gap: 10 }}>
- {messages.map(m => (
- <div key={m.id} style={{ display: 'flex', justifyContent: m.sender_type === 'staff' ? 'flex-end' : 'flex-start' }}>
- <div style={{
- maxWidth: '70%', padding: '10px 14px', borderRadius: 14,
- background: m.sender_type === 'staff' ? '#0f172a' : '#fff',
- color: m.sender_type === 'staff' ? '#fff' : '#0f172a',
- fontSize: 13, boxShadow: '0 1px 4px rgba(0,0,0,0.07)',
- borderBottomRightRadius: m.sender_type === 'staff' ? 4 : 14,
- borderBottomLeftRadius: m.sender_type === 'staff' ? 14 : 4,
- }}>
- {(() => {
- const text = m.body || m.content || m.text || ''
- if (text.startsWith('[Photo] ')) return (
-   <a href={text.replace('[Photo] ', '')} target="_blank" rel="noreferrer"
-   style={{ color: m.sender_type === 'staff' ? '#c9a96e' : '#0068ff', fontSize: 13 }}>
-   View attached photo
-   </a>
- )
- return text
- })()}
- <div style={{ fontSize: 10, opacity: 0.5, marginTop: 4, textAlign: m.sender_type === 'staff' ? 'right' : 'left' }}>
- {new Date(m.created_at).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}
+ <div style={{ flex:1, overflowY:'auto' }}>
+   {filtered.length === 0 && <div style={{ padding:24, textAlign:'center', color:'#94a3b8', fontSize:13 }}>No messages yet.</div>}
+   {filtered.map(c => (
+     <div key={c.id} onClick={() => setActiveConv(c)}
+       style={{ padding:'12px 16px', cursor:'pointer', borderBottom:'1px solid #f1f5f9', background: activeConv?.id === c.id ? '#f0f7ff' : '#fff' }}>
+       <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:3 }}>
+         <div style={{ fontWeight:800, fontSize:13, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', maxWidth:180 }}>
+           {c.channel === 'email' && c.subject ? c.subject : (c.customer_name || 'Unknown')}
+         </div>
+         <div style={{ fontSize:10, fontWeight:800, padding:'2px 7px', borderRadius:8, background: CHANNEL_COLORS[c.channel] || '#64748b', color:'#fff', flexShrink:0 }}>
+           {CHANNEL_LABELS[c.channel] || c.channel}
+         </div>
+       </div>
+       {c.channel === 'email' && c.customer_name && <div style={{ fontSize:11, color:'#64748b', fontWeight:600, marginBottom:2 }}>{c.customer_name}</div>}
+       {c.folder && <div style={{ fontSize:10, color:'#c9a96e', fontWeight:700, marginBottom:2 }}>📁 {folderName(c.folder)}</div>}
+       <div style={{ fontSize:12, color:'#64748b', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>{c.last_message || '—'}</div>
+       <div style={{ fontSize:11, color:'#94a3b8', marginTop:3 }}>
+         {c.last_message_at ? new Date(c.last_message_at).toLocaleString('en-GB', { day:'numeric', month:'short', hour:'2-digit', minute:'2-digit' }) : ''}
+       </div>
+     </div>
+   ))}
  </div>
  </div>
- </div>
- ))}
- <div ref={bottomRef} />
- </div>
-
- <div style={{ padding: 16, background: '#fff', borderTop: '1px solid #e2e8f0', display: 'flex', flexDirection: 'column', gap: 8 }}>
- {activeConv?.channel === 'email' && (
-   <input
-   style={{ width: '100%', padding: '9px 14px', borderRadius: 10, border: '1px solid #e2e8f0', fontSize: 12, outline: 'none', fontFamily: 'inherit', boxSizing: 'border-box', color: '#64748b' }}
-   placeholder="Subject (optional, e.g. Your appointment on Friday)"
-   value={replySubject}
-   onChange={e => setReplySubject(e.target.value)} />
  )}
- <div style={{ display: 'flex', gap: 10 }}>
- <input
- style={{ flex: 1, padding: '11px 14px', borderRadius: 12, border: '1px solid #e2e8f0', fontSize: 13, outline: 'none', fontFamily: 'inherit' }}
- placeholder="Type a reply..." value={reply}
- onChange={e => setReply(e.target.value)}
- onKeyDown={e => e.key === 'Enter' && sendReply()} />
- <button onClick={sendReply} disabled={loading}
- style={{ padding: '11px 20px', borderRadius: 12, border: 'none', background: '#0f172a', color: '#fff', fontWeight: 800, cursor: 'pointer', fontSize: 13 }}>
- Send
- </button>
- </div>
- </div>
- </>
+
+ {activeConv && (
+ <div style={{ flex:1, display:'flex', flexDirection:'column', background:'#f8fafc', minWidth:0 }}>
+   {/* Conversation header */}
+   <div style={{ padding:'12px 20px', background:'#fff', borderBottom:'1px solid #e2e8f0', display:'flex', alignItems:'center', gap:10, flexWrap:'wrap' }}>
+     {isMobile && <button onClick={() => setActiveConv(null)} style={{ background:'none', border:'none', fontSize:13, fontWeight:700, color:'#64748b', cursor:'pointer', padding:'0 4px 0 0', minHeight:44 }}>← Back</button>}
+     <div style={{ fontWeight:900, fontSize:15 }}>{activeConv.channel === 'email' && activeConv.subject ? activeConv.subject : activeConv.customer_name}</div>
+     {activeConv.channel === 'email' && activeConv.customer_email
+       ? <div style={{ fontSize:12, color:'#64748b' }}>{activeConv.customer_name} &lt;{activeConv.customer_email}&gt;</div>
+       : activeConv.customer_phone && <div style={{ fontSize:12, color:'#64748b' }}>{activeConv.customer_phone}</div>}
+     <div style={{ fontSize:11, fontWeight:800, padding:'2px 10px', borderRadius:10, background: CHANNEL_COLORS[activeConv.channel] || '#64748b', color:'#fff' }}>
+       {CHANNEL_LABELS[activeConv.channel] || activeConv.channel}
+     </div>
+     {/* Move to folder — all channels */}
+     {folders.length > 0 && (
+       <div style={{ marginLeft:'auto', display:'flex', gap:6, flexWrap:'wrap' }}>
+         {folders.filter(f => f.id !== activeConv.folder).map(f => (
+           <button key={f.id} onClick={() => moveFolder(activeConv.id, f.id)}
+             style={{ fontSize:11, padding:'3px 10px', borderRadius:8, border:'1px solid #e2e8f0', background:'#f8fafc', cursor:'pointer', fontWeight:700, color:'#64748b' }}>
+             📁 {f.name}
+           </button>
+         ))}
+       </div>
+     )}
+   </div>
+
+   {/* Messages */}
+   <div style={{ flex:1, overflowY:'auto', padding:20, display:'flex', flexDirection:'column', gap:10 }}>
+     {messages.map(m => {
+       const text = m.body || m.content || m.text || ''
+       const isPhoto = text.startsWith('[Photo] ')
+       const isStaff = m.sender_type === 'staff'
+       const tr = translations[m.id]
+       return (
+         <div key={m.id} style={{ display:'flex', justifyContent: isStaff ? 'flex-end' : 'flex-start' }}>
+           <div style={{ maxWidth:'72%' }}>
+             <div style={{
+               padding:'10px 14px', borderRadius:14,
+               background: isStaff ? '#0f172a' : '#fff',
+               color: isStaff ? '#fff' : '#0f172a',
+               fontSize:13, boxShadow:'0 1px 4px rgba(0,0,0,0.07)',
+               borderBottomRightRadius: isStaff ? 4 : 14,
+               borderBottomLeftRadius: isStaff ? 14 : 4,
+             }}>
+               {isPhoto ? (
+                 <a href={text.replace('[Photo] ', '')} target="_blank" rel="noreferrer"
+                   style={{ color: isStaff ? '#c9a96e' : '#0068ff', fontSize:13 }}>View attached photo</a>
+               ) : (
+                 <>
+                   <div style={{ whiteSpace:'pre-wrap', wordBreak:'break-word' }}>{text}</div>
+                   {tr?.showing && (
+                     <div style={{ marginTop:8, paddingTop:8, borderTop: isStaff ? '1px solid rgba(255,255,255,0.15)' : '1px solid #e2e8f0', fontSize:12, opacity:0.85, fontStyle:'italic', whiteSpace:'pre-wrap' }}>
+                       {tr.text}
+                     </div>
+                   )}
+                 </>
+               )}
+               <div style={{ display:'flex', justifyContent: isStaff ? 'flex-end' : 'flex-start', alignItems:'center', gap:8, marginTop:4 }}>
+                 <span style={{ fontSize:10, opacity:0.5 }}>
+                   {new Date(m.created_at).toLocaleTimeString('en-GB', { hour:'2-digit', minute:'2-digit' })}
+                 </span>
+                 {!isPhoto && (
+                   <button onClick={() => translateMessage(m.id, text)}
+                     style={{ background:'none', border:'none', color: isStaff ? 'rgba(255,255,255,0.55)' : '#94a3b8', cursor:'pointer', fontSize:10, padding:0, fontFamily:'inherit', lineHeight:1 }}>
+                     {translating[m.id] ? '…' : tr?.showing ? 'Original' : 'Translate'}
+                   </button>
+                 )}
+               </div>
+             </div>
+           </div>
+         </div>
+       )
+     })}
+     <div ref={bottomRef} />
+   </div>
+
+   {/* AI suggestions */}
+   {(loadingSugg || suggestions.length > 0) && (
+     <div style={{ padding:'8px 16px', background:'#fafafa', borderTop:'1px solid #e2e8f0', display:'flex', gap:8, flexWrap:'wrap', alignItems:'center' }}>
+       <span style={{ fontSize:11, fontWeight:700, color:'#94a3b8' }}>✨</span>
+       {loadingSugg && <span style={{ fontSize:12, color:'#94a3b8' }}>Generating suggestions…</span>}
+       {suggestions.map((s, i) => (
+         <button key={i} onClick={() => setReply(s)}
+           style={{ padding:'5px 13px', borderRadius:20, border:'1px solid #c9a96e', background:'#fffbeb', color:'#92400e', fontSize:12, fontWeight:600, cursor:'pointer', maxWidth:260, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
+           {s}
+         </button>
+       ))}
+     </div>
+   )}
+
+   {/* Reply box */}
+   <div style={{ padding:16, background:'#fff', borderTop:'1px solid #e2e8f0', display:'flex', flexDirection:'column', gap:8 }}>
+     {activeConv?.channel === 'email' && (
+       <input style={{ width:'100%', padding:'9px 14px', borderRadius:10, border:'1px solid #e2e8f0', fontSize:12, outline:'none', fontFamily:'inherit', boxSizing:'border-box', color:'#64748b' }}
+         placeholder="Subject (optional)" value={replySubject} onChange={e => setReplySubject(e.target.value)} />
+     )}
+     <div style={{ display:'flex', gap:10 }}>
+       <input
+         style={{ flex:1, padding:'11px 14px', borderRadius:12, border:'1px solid #e2e8f0', fontSize:13, outline:'none', fontFamily:'inherit' }}
+         placeholder="Type a reply…" value={reply}
+         onChange={e => setReply(e.target.value)}
+         onKeyDown={e => e.key === 'Enter' && !e.shiftKey && sendReply()} />
+       <button onClick={sendReply} disabled={loading}
+         style={{ padding:'11px 20px', borderRadius:12, border:'none', background:'#0f172a', color:'#fff', fontWeight:800, cursor:'pointer', fontSize:13, opacity: loading ? 0.7 : 1 }}>
+         Send
+       </button>
+     </div>
+   </div>
  </div>
  )}
  </div>
@@ -1121,6 +1271,14 @@ function LoginPage({ onLogin }) {
  const [error, setError] = useState('')
  const [loading, setLoading] = useState(false)
 
+ // Detect recovery token in URL hash (Supabase password reset redirect)
+ const hashParams = new URLSearchParams(window.location.hash.replace('#', ''))
+ const recoveryToken = hashParams.get('type') === 'recovery' ? hashParams.get('access_token') : null
+ const [mode, setMode] = useState(recoveryToken ? 'reset' : 'login')
+ const [resetSent, setResetSent] = useState(false)
+ const [newPassword, setNewPassword] = useState('')
+ const [confirmPassword, setConfirmPassword] = useState('')
+
  async function handleSubmit(e) {
    e.preventDefault()
    setError('')
@@ -1134,34 +1292,113 @@ function LoginPage({ onLogin }) {
    setLoading(false)
  }
 
+ async function handleForgot(e) {
+   e.preventDefault()
+   setError('')
+   setLoading(true)
+   try {
+     await axios.post(API + '/api/auth/forgot-password', { email })
+     setResetSent(true)
+   } catch (err) {
+     setError(err.response?.data?.error || 'Could not send reset email.')
+   }
+   setLoading(false)
+ }
+
+ async function handleReset(e) {
+   e.preventDefault()
+   setError('')
+   if (newPassword !== confirmPassword) { setError('Passwords do not match.'); return }
+   setLoading(true)
+   try {
+     await axios.post(API + '/api/auth/reset-password', { access_token: recoveryToken, new_password: newPassword })
+     // Clear hash and redirect to login
+     window.history.replaceState(null, '', window.location.pathname)
+     setMode('login')
+     setError('')
+     setNewPassword('')
+     setConfirmPassword('')
+   } catch (err) {
+     setError(err.response?.data?.error || 'Failed to reset password.')
+   }
+   setLoading(false)
+ }
+
  return (
    <div style={{ minHeight:'100vh', width:'100vw', display:'flex', alignItems:'center', justifyContent:'center', background:'#f8f8fc', fontFamily:'ui-sans-serif, system-ui, sans-serif', margin:0, padding:0 }}>
      <div style={{ background:'#fff', borderRadius:20, padding:40, width:380, boxShadow:'0 20px 60px rgba(0,0,0,0.12)' }}>
        <div style={{ marginBottom:28, textAlign:'center' }}>
          <img src={orbitLogo} alt="Orbit" style={{ width:40, height:40, objectFit:'contain', marginBottom:12 }} />
          <div style={{ fontSize:26, fontWeight:800, color:'#0f172a', fontFamily:"'Neue Montreal', ui-sans-serif, system-ui, sans-serif" }}>Orbit Calendar</div>
-         <div style={{ fontSize:13, color:'#64748b', marginTop:4, fontWeight:600 }}>Sign in to your salon</div>
+         <div style={{ fontSize:13, color:'#64748b', marginTop:4, fontWeight:600 }}>
+           {mode === 'forgot' ? 'Reset your password' : mode === 'reset' ? 'Set new password' : 'Sign in to your salon'}
+         </div>
        </div>
-       <form onSubmit={handleSubmit}>
-         <label style={lbl}>Email</label>
-         <input style={inp} type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="you@example.com" required />
-         <label style={lbl}>Password</label>
-         <input style={inp} type="password" value={password} onChange={e => setPassword(e.target.value)} placeholder="••••••••" required />
-         {error && <div style={{ marginTop:12, padding:'9px 12px', background:'#fef2f2', borderRadius:8, color:'#ef4444', fontSize:13, fontWeight:600 }}>{error}</div>}
-         <button type="submit" disabled={loading} style={{ ...btnPrimary, width:'100%', marginTop:20, opacity: loading ? 0.7 : 1 }}>
-           {loading ? 'Signing in…' : 'Sign In'}
-         </button>
-       </form>
-       <div style={{ marginTop:16, textAlign:'center', fontSize:13, color:'#64748b' }}>
-         No account? <button onClick={() => onLogin(null, null, 'signup')} style={{ background:'none', border:'none', color:'#3b82f6', fontWeight:700, cursor:'pointer', fontSize:13, padding:0 }}>Create one</button>
-       </div>
+
+       {mode === 'login' && (
+         <form onSubmit={handleSubmit}>
+           <label style={lbl}>Email</label>
+           <input style={inp} type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="you@example.com" required />
+           <label style={lbl}>Password</label>
+           <input style={inp} type="password" value={password} onChange={e => setPassword(e.target.value)} placeholder="••••••••" required />
+           <div style={{ textAlign:'right', marginTop:4 }}>
+             <button type="button" onClick={() => { setMode('forgot'); setError('') }} style={{ background:'none', border:'none', color:'#3b82f6', fontWeight:600, cursor:'pointer', fontSize:12, padding:0 }}>Forgot password?</button>
+           </div>
+           {error && <div style={{ marginTop:12, padding:'9px 12px', background:'#fef2f2', borderRadius:8, color:'#ef4444', fontSize:13, fontWeight:600 }}>{error}</div>}
+           <button type="submit" disabled={loading} style={{ ...btnPrimary, width:'100%', marginTop:20, opacity: loading ? 0.7 : 1 }}>
+             {loading ? 'Signing in…' : 'Sign In'}
+           </button>
+         </form>
+       )}
+
+       {mode === 'forgot' && !resetSent && (
+         <form onSubmit={handleForgot}>
+           <label style={lbl}>Email</label>
+           <input style={inp} type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="you@example.com" required />
+           {error && <div style={{ marginTop:12, padding:'9px 12px', background:'#fef2f2', borderRadius:8, color:'#ef4444', fontSize:13, fontWeight:600 }}>{error}</div>}
+           <button type="submit" disabled={loading} style={{ ...btnPrimary, width:'100%', marginTop:20, opacity: loading ? 0.7 : 1 }}>
+             {loading ? 'Sending…' : 'Send Reset Link'}
+           </button>
+           <div style={{ marginTop:12, textAlign:'center' }}>
+             <button type="button" onClick={() => { setMode('login'); setError('') }} style={{ background:'none', border:'none', color:'#64748b', fontSize:13, cursor:'pointer', padding:0 }}>← Back to sign in</button>
+           </div>
+         </form>
+       )}
+
+       {mode === 'forgot' && resetSent && (
+         <div style={{ textAlign:'center' }}>
+           <div style={{ fontSize:32, marginBottom:12 }}>📧</div>
+           <div style={{ fontSize:15, fontWeight:700, color:'#0f172a', marginBottom:8 }}>Check your email</div>
+           <div style={{ fontSize:13, color:'#64748b', marginBottom:20 }}>We've sent a password reset link to <strong>{email}</strong>.</div>
+           <button onClick={() => { setMode('login'); setResetSent(false) }} style={{ background:'none', border:'none', color:'#3b82f6', fontWeight:700, cursor:'pointer', fontSize:13, padding:0 }}>← Back to sign in</button>
+         </div>
+       )}
+
+       {mode === 'reset' && (
+         <form onSubmit={handleReset}>
+           <label style={lbl}>New Password</label>
+           <input style={inp} type="password" value={newPassword} onChange={e => setNewPassword(e.target.value)} placeholder="Min. 6 characters" required />
+           <label style={lbl}>Confirm Password</label>
+           <input style={inp} type="password" value={confirmPassword} onChange={e => setConfirmPassword(e.target.value)} placeholder="Repeat new password" required />
+           {error && <div style={{ marginTop:12, padding:'9px 12px', background:'#fef2f2', borderRadius:8, color:'#ef4444', fontSize:13, fontWeight:600 }}>{error}</div>}
+           <button type="submit" disabled={loading} style={{ ...btnPrimary, width:'100%', marginTop:20, opacity: loading ? 0.7 : 1 }}>
+             {loading ? 'Saving…' : 'Set New Password'}
+           </button>
+         </form>
+       )}
+
+       {mode === 'login' && (
+         <div style={{ marginTop:16, textAlign:'center', fontSize:13, color:'#64748b' }}>
+           No account? <button onClick={() => onLogin(null, null, 'signup')} style={{ background:'none', border:'none', color:'#3b82f6', fontWeight:700, cursor:'pointer', fontSize:13, padding:0 }}>Create one</button>
+         </div>
+       )}
      </div>
    </div>
  )
 }
 
 // Signup Page
-function SignupPage({ onLogin, onBack }) {
+function SignupPage({ onLogin, onBack, onShowTerms, onShowPrivacy }) {
  const [form, setForm] = useState({ email:'', password:'', confirm:'', salon_name:'', address:'', country:'UK' })
  const [error, setError] = useState('')
  const [loading, setLoading] = useState(false)
@@ -1220,6 +1457,12 @@ function SignupPage({ onLogin, onBack }) {
        </form>
        <div style={{ marginTop:16, textAlign:'center', fontSize:13, color:'#64748b' }}>
          Already have an account? <button onClick={onBack} style={{ background:'none', border:'none', color:'#3b82f6', fontWeight:700, cursor:'pointer', fontSize:13, padding:0 }}>Sign in</button>
+       </div>
+       <div style={{ marginTop:20, textAlign:'center', fontSize:11, color:'#94a3b8' }}>
+         By creating an account you agree to our{' '}
+         <button onClick={onShowTerms} style={{ background:'none', border:'none', color:'#3b82f6', fontSize:11, cursor:'pointer', padding:0 }}>Terms of Service</button>
+         {' '}and{' '}
+         <button onClick={onShowPrivacy} style={{ background:'none', border:'none', color:'#3b82f6', fontSize:11, cursor:'pointer', padding:0 }}>Privacy Policy</button>.
        </div>
      </div>
    </div>
@@ -1467,9 +1710,9 @@ function MainApp({ salon, onLogout }) {
 .fc .fc-timegrid-slot { height: 60px !important; }
 .fc { font-family: ui-sans-serif, system-ui, sans-serif !important; }
 .fc .fc-toolbar-title { font-size: 18px; font-weight: 800; }
-.fc .fc-button { background: #0f172a !important; border-color: #0f172a !important; font-weight: 700 !important; border-radius: 8px !important; }
-.fc .fc-button:hover { background: #1e293b !important; }
-.fc .fc-button-active { background: #334155 !important; border-color: #334155 !important; }
+.fc .fc-button { background: #fff !important; border: 1.5px solid #e2e8f0 !important; color: #0f172a !important; font-weight: 700 !important; border-radius: 8px !important; box-shadow: none !important; }
+.fc .fc-button:hover { background: #f1f5f9 !important; border-color: #cbd5e1 !important; }
+.fc .fc-button-active { background: #f1f5f9 !important; border-color: #0f172a !important; color: #0f172a !important; }
 .fc-event { border-radius: 6px !important; font-size: 12px !important; font-weight: 700 !important; }
 .fc .fc-col-header-cell { font-weight: 800; font-size: 13px; padding: 6px 0; }
 .fc .fc-timegrid-slot-label { font-size: 11px; color: #94a3b8; }
@@ -2055,10 +2298,11 @@ await axios.put(API + '/api/bookings/' + editingId, {
  ))}
  </div>
 
- {/* Logout */}
- <div style={{ padding:'12px 10px 16px' }}>
+ {/* Logout + Support */}
+ <div style={{ padding:'12px 10px 16px', display:'flex', flexDirection:'column', gap:2 }}>
+   <SupportWidget salon={salon} />
    <button onClick={onLogout} style={{ width:'100%', textAlign:'left', padding:'9px 12px', borderRadius:10, border:'none', background:'transparent', color:'#94a3b8', fontWeight:700, fontSize:13, cursor:'pointer', display:'flex', alignItems:'center', gap:9 }}>
-     Sign Out
+     {(salon?.country === 'Vietnam' || salon?.country === 'VN') ? 'Đăng xuất' : 'Sign Out'}
    </button>
  </div>
  </div>
@@ -2204,7 +2448,7 @@ await axios.put(API + '/api/bookings/' + editingId, {
  </div>
  )}
  {view === 'clients' && <ClientsView />}
- {view === 'inbox' && <InboxView country={salon?.country} />}
+ {view === 'inbox' && <InboxView country={salon?.country} salonId={salon?.id} />}
  {view === 'analytics'  && <div style={{ flex:1, overflowY:'auto' }}><Analytics /></div>}
 {view === 'giftcards'  && <GiftCardsView />}
 {view === 'shop'       && <ShopView />}
@@ -2801,6 +3045,62 @@ function GiftCardsView() {
   )
 }
 
+// ── Contact Support Widget ─────────────────────────────────────────────────────
+function SupportWidget({ salon }) {
+  const isVN = salon?.country === 'Vietnam' || salon?.country === 'VN'
+  const label = isVN ? 'Liên hệ hỗ trợ' : 'Contact Support'
+  const [open, setOpen] = useState(false)
+  const [msg, setMsg]   = useState('')
+  const [status, setStatus] = useState(null) // 'sending' | 'sent' | 'error'
+
+  async function send() {
+    if (!msg.trim()) return
+    setStatus('sending')
+    try {
+      await axios.post(API + '/api/support/contact', { message: msg })
+      setStatus('sent')
+      setMsg('')
+      setTimeout(() => { setOpen(false); setStatus(null) }, 2500)
+    } catch (e) {
+      setStatus('error')
+    }
+  }
+
+  return (
+    <>
+      <button onClick={() => setOpen(true)} style={{ width:'100%', textAlign:'left', padding:'9px 12px', borderRadius:10, border:'none', background:'transparent', color:'#94a3b8', fontWeight:700, fontSize:13, cursor:'pointer', display:'flex', alignItems:'center', gap:9 }}>
+        <span style={{ fontSize:14 }}>💬</span>{label}
+      </button>
+      {open && (
+        <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.4)', display:'flex', alignItems:'center', justifyContent:'center', zIndex:9999 }}>
+          <div style={{ background:'#fff', borderRadius:16, padding:28, width:380, maxWidth:'90vw', boxShadow:'0 20px 60px rgba(0,0,0,0.2)' }}>
+            <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:16 }}>
+              <h3 style={{ margin:0, fontSize:16, fontWeight:900, color:'#0f172a' }}>{label}</h3>
+              <button onClick={() => { setOpen(false); setStatus(null) }} style={{ background:'none', border:'none', fontSize:22, cursor:'pointer', color:'#94a3b8' }}>×</button>
+            </div>
+            <p style={{ fontSize:13, color:'#64748b', margin:'0 0 14px' }}>
+              {isVN ? 'Gửi tin nhắn cho đội ngũ Orbit. Chúng tôi sẽ phản hồi qua email sớm nhất.' : 'Send a message to the Orbit team. We\'ll get back to you by email.'}
+            </p>
+            <textarea value={msg} onChange={e => setMsg(e.target.value)}
+              rows={4} placeholder={isVN ? 'Mô tả vấn đề của bạn…' : 'Describe your issue or question…'}
+              style={{ ...inp, resize:'vertical', minHeight:90 }} />
+            {status === 'sent'   && <p style={{ color:'#059669', fontSize:13, margin:'10px 0 0' }}>✓ {isVN ? 'Đã gửi!' : 'Message sent!'}</p>}
+            {status === 'error'  && <p style={{ color:'#ef4444', fontSize:13, margin:'10px 0 0' }}>{isVN ? 'Gửi thất bại. Vui lòng thử lại.' : 'Failed to send. Please try again.'}</p>}
+            <div style={{ display:'flex', gap:10, marginTop:16 }}>
+              <button onClick={() => { setOpen(false); setStatus(null) }} style={{ ...btnGhost, flex:1, padding:'10px 16px' }}>
+                {isVN ? 'Huỷ' : 'Cancel'}
+              </button>
+              <button onClick={send} disabled={status === 'sending' || !msg.trim()} style={{ ...btnPrimary, flex:1, padding:'10px 16px', opacity: (!msg.trim() || status === 'sending') ? 0.6 : 1 }}>
+                {status === 'sending' ? (isVN ? 'Đang gửi…' : 'Sending…') : (isVN ? 'Gửi' : 'Send')}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
+  )
+}
+
 // ── Widget Settings ────────────────────────────────────────────────────────────
 function WidgetSettingsView({ salon }) {
   const salonId   = salon?.id   || ''
@@ -2808,6 +3108,8 @@ function WidgetSettingsView({ salon }) {
   const widgetUrl = API + '/widget/widget-page.html?salon=' + encodeURIComponent(salonId) + '&name=' + encodeURIComponent(salonName)
   const embedCode = '<script src="' + API + '/widget/orbit-chat-widget.js?salon=' + salonId + '"><\/script>'
 
+  const [accentColor,        setAccentColor]        = useState('')
+  const [widgetSalonName,    setWidgetSalonName]    = useState('')
   const [upsellEnabled,      setUpsellEnabled]      = useState(false)
   const [products,           setProducts]           = useState([])
   const [groupUpsellEnabled, setGroupUpsellEnabled] = useState(false)
@@ -2819,12 +3121,16 @@ function WidgetSettingsView({ salon }) {
   useEffect(() => {
     if (!salonId) return
     Promise.all([
+      axios.get(API + '/api/settings/widget_accent_color').catch(() => ({ data: null })),
+      axios.get(API + '/api/settings/widget_salon_name').catch(() => ({ data: null })),
       axios.get(API + '/api/settings/widget_upsell_enabled').catch(() => ({ data: null })),
       axios.get(API + '/api/settings/widget_upsell_products').catch(() => ({ data: null })),
       axios.get(API + '/api/settings/widget_group_upsell_enabled').catch(() => ({ data: null })),
       axios.get(API + '/api/settings/widget_group_upsell_products').catch(() => ({ data: null })),
       axios.get(API + '/api/settings/widget_faqs').catch(() => ({ data: null })),
-    ]).then(([er, pr, ger, gpr, fr]) => {
+    ]).then(([acr, snr, er, pr, ger, gpr, fr]) => {
+      if (acr.data?.value) setAccentColor(acr.data.value)
+      if (snr.data?.value) setWidgetSalonName(snr.data.value)
       if (er.data?.value != null) setUpsellEnabled(er.data.value === 'true')
       if (pr.data?.value)  { try { setProducts(JSON.parse(pr.data.value)) } catch (_) {} }
       if (ger.data?.value != null) setGroupUpsellEnabled(ger.data.value === 'true')
@@ -2871,6 +3177,8 @@ function WidgetSettingsView({ salon }) {
     setSaving(true)
     try {
       await Promise.all([
+        ...(accentColor     ? [axios.post(API + '/api/settings/widget_accent_color',  { value: accentColor })]     : []),
+        ...(widgetSalonName ? [axios.post(API + '/api/settings/widget_salon_name',    { value: widgetSalonName })] : []),
         axios.post(API + '/api/settings/widget_upsell_enabled',        { value: String(upsellEnabled) }),
         axios.post(API + '/api/settings/widget_upsell_products',        { value: JSON.stringify(products) }),
         axios.post(API + '/api/settings/widget_group_upsell_enabled',   { value: String(groupUpsellEnabled) }),
@@ -2923,6 +3231,27 @@ function WidgetSettingsView({ salon }) {
     <div style={{ flex:1, overflowY:'auto', padding:32 }}>
       <div style={{ maxWidth:620 }}>
         <h2 style={{ fontSize:18, fontWeight:900, marginBottom:22, color:'#0f172a' }}>Widget Settings</h2>
+
+        <div style={card}>
+          <div style={secTitle}>Widget Branding</div>
+          <div style={secSub}>Customise how the chat widget appears on your website.</div>
+          <label style={lbl}>Salon name shown in widget header</label>
+          <input style={inp} value={widgetSalonName} onChange={e => setWidgetSalonName(e.target.value)}
+            placeholder={salonName || 'e.g. Orbit Nails'} />
+          <label style={{ ...lbl, marginTop:14 }}>Accent colour</label>
+          <div style={{ display:'flex', gap:10, alignItems:'center', marginTop:4 }}>
+            <input type="color" value={accentColor || '#c9a96e'}
+              onChange={e => setAccentColor(e.target.value)}
+              style={{ width:44, height:36, padding:2, border:'1px solid #e2e8f0', borderRadius:8, cursor:'pointer' }} />
+            <input style={{ ...inp, maxWidth:110, fontFamily:'monospace', fontSize:12 }}
+              value={accentColor} onChange={e => setAccentColor(e.target.value)}
+              placeholder="#c9a96e" />
+            {accentColor && (
+              <div style={{ width:28, height:28, borderRadius:6, background: accentColor, border:'1px solid #e2e8f0', flexShrink:0 }} />
+            )}
+          </div>
+          <div style={{ fontSize:11, color:'#94a3b8', marginTop:8 }}>Leave blank to use the default Orbit gold colour.</div>
+        </div>
 
         <div style={card}>
           <div style={secTitle}>Standalone Booking Page</div>
@@ -3006,6 +3335,385 @@ function WidgetSettingsView({ salon }) {
   )
 }
 
+// ── Legal page shell ──────────────────────────────────────────────────────────
+function LegalPage({ title, onBack, children }) {
+  return (
+    <div style={{ minHeight:'100vh', background:'#f8f8fc', fontFamily:'ui-sans-serif, system-ui, sans-serif' }}>
+      <div style={{ maxWidth:760, margin:'0 auto', padding:'40px 24px' }}>
+        <button onClick={onBack} style={{ background:'none', border:'none', color:'#3b82f6', fontWeight:700, cursor:'pointer', fontSize:13, padding:0, marginBottom:28, display:'flex', alignItems:'center', gap:6 }}>← Back</button>
+        <div style={{ display:'flex', alignItems:'center', gap:12, marginBottom:32 }}>
+          <img src={orbitLogo} alt="Orbit" style={{ width:32, height:32, objectFit:'contain' }} />
+          <div>
+            <div style={{ fontSize:22, fontWeight:800, color:'#0f172a' }}>{title}</div>
+            <div style={{ fontSize:12, color:'#64748b' }}>Orbit Calendar · orbit-calendar.co.uk · Last updated: April 2026</div>
+          </div>
+        </div>
+        <div style={{ background:'#fff', borderRadius:16, padding:'32px 36px', boxShadow:'0 4px 24px rgba(0,0,0,0.06)', lineHeight:1.7, fontSize:14, color:'#1e293b' }}>
+          {children}
+        </div>
+        <div style={{ marginTop:24, textAlign:'center', fontSize:12, color:'#94a3b8' }}>© {new Date().getFullYear()} Orbit Calendar. All rights reserved.</div>
+      </div>
+    </div>
+  )
+}
+
+const legalH2 = { fontSize:16, fontWeight:800, color:'#0f172a', marginTop:28, marginBottom:8 }
+const legalH3 = { fontSize:14, fontWeight:700, color:'#0f172a', marginTop:18, marginBottom:6 }
+const legalP  = { marginBottom:12 }
+const legalUl = { paddingLeft:20, marginBottom:12 }
+
+function TermsPage({ onBack }) {
+  return (
+    <LegalPage title="Terms of Service" onBack={onBack}>
+      <p style={legalP}>These Terms of Service ("Terms") govern your access to and use of Orbit Calendar, a SaaS salon management and booking platform ("Service") operated by Orbit Calendar Ltd ("we", "us", "our"). By registering for or using the Service you agree to these Terms.</p>
+
+      <h2 style={legalH2}>1. Definitions</h2>
+      <p style={legalP}><strong>"Account"</strong> means the account you create to access the Service. <strong>"Salon"</strong> means the business you register under your Account. <strong>"Customer Data"</strong> means any data you or your clients submit through the Service.</p>
+
+      <h2 style={legalH2}>2. Eligibility</h2>
+      <p style={legalP}>You must be at least 18 years old and have the legal authority to bind the business you represent. The Service is intended for commercial use by beauty and nail salons. Personal use accounts are not permitted.</p>
+
+      <h2 style={legalH2}>3. Account Registration</h2>
+      <p style={legalP}>You are responsible for maintaining the confidentiality of your login credentials. You must notify us immediately at <a href="mailto:hello@orbit-calendar.com" style={{ color:'#3b82f6' }}>hello@orbit-calendar.com</a> if you suspect unauthorised access. We reserve the right to suspend accounts that show signs of misuse or security compromise.</p>
+
+      <h2 style={legalH2}>4. Subscription and Payment</h2>
+      <p style={legalP}>Access to the Service is provided on a subscription basis. Fees are charged in advance on a monthly or annual cycle. All prices are inclusive of VAT where applicable. We use Stripe as our payment processor; your card details are stored securely by Stripe and never held on our servers.</p>
+      <ul style={legalUl}>
+        <li>Subscriptions automatically renew unless cancelled at least 24 hours before the renewal date.</li>
+        <li>No refunds are issued for partial billing periods unless required by applicable law.</li>
+        <li>We may adjust pricing with 30 days' written notice.</li>
+      </ul>
+
+      <h2 style={legalH2}>5. Acceptable Use</h2>
+      <p style={legalP}>You agree not to:</p>
+      <ul style={legalUl}>
+        <li>Use the Service for any unlawful purpose or in violation of any regulation.</li>
+        <li>Attempt to gain unauthorised access to our systems or another user's account.</li>
+        <li>Upload malicious code, spam, or content that infringes third-party intellectual property rights.</li>
+        <li>Reverse-engineer, decompile, or attempt to extract the source code of the Service.</li>
+        <li>Resell or sublicense access to the Service without our express written consent.</li>
+      </ul>
+
+      <h2 style={legalH2}>6. Customer Data and GDPR</h2>
+      <p style={legalP}>You remain the data controller of any personal data (client names, phone numbers, appointment details) stored in your account. We act as a data processor. By using the Service you warrant that you have a lawful basis for processing your clients' personal data under UK GDPR and that you have an appropriate privacy notice in place.</p>
+      <p style={legalP}>We process data in accordance with our Privacy Policy. Our infrastructure is hosted on Supabase (EU region) and Railway (EU region).</p>
+
+      <h2 style={legalH2}>7. Intellectual Property</h2>
+      <p style={legalP}>All software, design, trademarks, and content forming part of the Service are owned by or licensed to Orbit Calendar Ltd. You are granted a limited, non-exclusive, non-transferable licence to use the Service during your subscription period. Nothing in these Terms transfers any intellectual property rights to you.</p>
+
+      <h2 style={legalH2}>8. Uptime and Service Levels</h2>
+      <p style={legalP}>We aim for 99.5% monthly uptime, excluding scheduled maintenance windows announced in advance. We are not liable for downtime caused by third-party infrastructure providers (Supabase, Railway, Vercel, Twilio, Stripe, Resend) or events outside our reasonable control.</p>
+
+      <h2 style={legalH2}>9. Limitation of Liability</h2>
+      <p style={legalP}>To the fullest extent permitted by English law, our total aggregate liability to you for any claim arising out of or relating to the Service shall not exceed the fees paid by you in the three calendar months preceding the claim. We exclude all liability for indirect, consequential, or special losses including loss of profits, loss of data, or loss of business.</p>
+
+      <h2 style={legalH2}>10. Termination</h2>
+      <p style={legalP}>Either party may terminate at any time. On termination you may request an export of your Customer Data within 30 days; after that period we will delete it in accordance with our data retention policy. We may terminate immediately for material breach of these Terms.</p>
+
+      <h2 style={legalH2}>11. Governing Law</h2>
+      <p style={legalP}>These Terms are governed by the laws of England and Wales. Any disputes shall be subject to the exclusive jurisdiction of the courts of England and Wales.</p>
+
+      <h2 style={legalH2}>12. Changes to These Terms</h2>
+      <p style={legalP}>We may update these Terms from time to time. We will notify you by email at least 14 days before material changes take effect. Continued use of the Service after that date constitutes acceptance of the updated Terms.</p>
+
+      <h2 style={legalH2}>13. Contact</h2>
+      <p style={legalP}>Orbit Calendar Ltd · <a href="mailto:hello@orbit-calendar.com" style={{ color:'#3b82f6' }}>hello@orbit-calendar.com</a> · orbit-calendar.co.uk</p>
+    </LegalPage>
+  )
+}
+
+function PrivacyPage({ onBack }) {
+  return (
+    <LegalPage title="Privacy Policy" onBack={onBack}>
+      <p style={legalP}>Orbit Calendar Ltd ("we", "us", "our") is committed to protecting your privacy. This Privacy Policy explains what personal data we collect, why we collect it, and your rights under UK GDPR and the Data Protection Act 2018.</p>
+
+      <h2 style={legalH2}>1. Who We Are</h2>
+      <p style={legalP}>Orbit Calendar Ltd is the data controller for the personal data of salon owners and staff who use our platform. For the personal data of your clients (end customers), you are the data controller and we act as your data processor.</p>
+      <p style={legalP}>Contact: <a href="mailto:hello@orbit-calendar.com" style={{ color:'#3b82f6' }}>hello@orbit-calendar.com</a></p>
+
+      <h2 style={legalH2}>2. Data We Collect About You (Salon Owners / Staff)</h2>
+      <ul style={legalUl}>
+        <li><strong>Account data:</strong> email address, hashed password, salon name, address, country.</li>
+        <li><strong>Billing data:</strong> subscription tier, payment status. Card details are handled exclusively by Stripe and never stored by us.</li>
+        <li><strong>Usage data:</strong> feature usage logs, browser type, IP address, access timestamps.</li>
+      </ul>
+
+      <h2 style={legalH2}>3. Data We Process on Your Behalf (Your Clients)</h2>
+      <p style={legalP}>When you use Orbit Calendar to manage bookings, we process on your behalf:</p>
+      <ul style={legalUl}>
+        <li>Client names, phone numbers, and email addresses.</li>
+        <li>Appointment history, service preferences, and notes.</li>
+        <li>Chat and conversation messages.</li>
+        <li>Loyalty points and gift card balances.</li>
+      </ul>
+      <p style={legalP}>You are responsible for ensuring you have a valid lawful basis (typically legitimate interest or consent) for collecting and storing this data, and for maintaining your own client-facing privacy notice.</p>
+
+      <h2 style={legalH2}>4. How We Use Your Data</h2>
+      <h3 style={legalH3}>Providing the Service</h3>
+      <p style={legalP}>We use your account data to authenticate you, provide the calendar and booking management features, and send transactional emails (booking confirmations, receipts, password reset).</p>
+      <h3 style={legalH3}>SMS Notifications</h3>
+      <p style={legalP}>Booking confirmation SMS messages are sent via Twilio to the phone numbers you or your clients provide. You are responsible for obtaining consent from clients before sending marketing SMS.</p>
+      <h3 style={legalH3}>Billing</h3>
+      <p style={legalP}>We share your email address with Stripe to process subscription payments. Stripe's privacy policy is available at stripe.com/privacy.</p>
+      <h3 style={legalH3}>Service Improvement</h3>
+      <p style={legalP}>We may use aggregated, anonymised usage data to improve the platform. We do not sell personal data to third parties.</p>
+
+      <h2 style={legalH2}>5. Legal Bases for Processing</h2>
+      <ul style={legalUl}>
+        <li><strong>Contract:</strong> processing necessary to provide the Service you have contracted for.</li>
+        <li><strong>Legitimate interest:</strong> security monitoring, fraud prevention, service improvement.</li>
+        <li><strong>Legal obligation:</strong> retaining financial records as required by HMRC.</li>
+      </ul>
+
+      <h2 style={legalH2}>6. Data Retention</h2>
+      <p style={legalP}>We retain your account data for the duration of your subscription plus 90 days. Financial records are retained for 7 years as required by UK law. Upon account deletion, all other personal data is permanently deleted within 30 days.</p>
+
+      <h2 style={legalH2}>7. International Transfers</h2>
+      <p style={legalP}>Our infrastructure is hosted in the EU (Supabase EU West, Railway EU West). Email is delivered via Resend (US-based, with EU SCC in place). SMS is delivered via Twilio (US-based, with EU SCC in place). Payments are processed via Stripe (US-based, with UK adequacy decision). All transfers outside the UK are subject to appropriate safeguards.</p>
+
+      <h2 style={legalH2}>8. Your Rights</h2>
+      <p style={legalP}>Under UK GDPR you have the right to:</p>
+      <ul style={legalUl}>
+        <li><strong>Access</strong> the personal data we hold about you.</li>
+        <li><strong>Rectification</strong> of inaccurate data.</li>
+        <li><strong>Erasure</strong> ("right to be forgotten") subject to legal retention obligations.</li>
+        <li><strong>Portability</strong> — receive your data in a machine-readable format.</li>
+        <li><strong>Object</strong> to processing based on legitimate interest.</li>
+        <li><strong>Restrict</strong> processing in certain circumstances.</li>
+      </ul>
+      <p style={legalP}>To exercise any of these rights, email <a href="mailto:hello@orbit-calendar.com" style={{ color:'#3b82f6' }}>hello@orbit-calendar.com</a>. We will respond within 30 days. You also have the right to lodge a complaint with the ICO at ico.org.uk.</p>
+
+      <h2 style={legalH2}>9. Cookies</h2>
+      <p style={legalP}>The Orbit Calendar dashboard uses <strong>localStorage</strong> (not cookies) to persist your authentication token. The public marketing site (orbit-calendar.co.uk) may use essential analytics cookies. We do not use advertising or tracking cookies.</p>
+
+      <h2 style={legalH2}>10. Security</h2>
+      <p style={legalP}>We implement industry-standard security measures including TLS encryption in transit, encrypted storage at rest, role-based access controls, and regular dependency audits. Despite these measures, no system is 100% secure and we cannot guarantee absolute security.</p>
+
+      <h2 style={legalH2}>11. Changes to This Policy</h2>
+      <p style={legalP}>We may update this Privacy Policy periodically. We will notify you by email at least 14 days before material changes take effect.</p>
+    </LegalPage>
+  )
+}
+
+// ── Onboarding wizard ─────────────────────────────────────────────────────────
+function OnboardingWizard({ salon, onComplete }) {
+  const [step, setStep] = useState(0)
+  const [services, setServices] = useState([])
+  const [technicians, setTechnicians] = useState([])
+  const [newSvc, setNewSvc] = useState({ name:'', duration_minutes:60, price:'', category:'Nail Enhancements' })
+  const [newTechName, setNewTechName] = useState('')
+  const [hours, setHours] = useState(DEFAULT_HOURS.map(h => ({ ...h })))
+  const [completing, setCompleting] = useState(false)
+
+  const STEPS = ['Your Services', 'Your Team', 'Opening Hours']
+
+  async function addService() {
+    if (!newSvc.name.trim() || !newSvc.price) { alert('Please enter a name and price.'); return }
+    try {
+      const color = CATEGORY_COLOR[newSvc.category] || '#94a3b8'
+      const { data } = await axios.post(API + '/api/services', { ...newSvc, color, price: parseFloat(newSvc.price) })
+      setServices(prev => [...prev, data])
+      setNewSvc({ name:'', duration_minutes:60, price:'', category:'Nail Enhancements' })
+    } catch (err) { alert(err.response?.data?.error || 'Could not add service.') }
+  }
+
+  async function removeService(id) {
+    try {
+      await axios.delete(API + '/api/services/' + id)
+      setServices(prev => prev.filter(s => s.id !== id))
+    } catch (err) { alert(err.response?.data?.error || 'Could not remove.') }
+  }
+
+  async function addTechnician() {
+    if (!newTechName.trim()) return
+    try {
+      const { data } = await axios.post(API + '/api/technicians', { name: newTechName.trim(), display_order: technicians.length })
+      setTechnicians(prev => [...prev, data])
+      setNewTechName('')
+    } catch (err) { alert(err.response?.data?.error || 'Could not add technician.') }
+  }
+
+  async function removeTechnician(id) {
+    if (!window.confirm('Remove this technician?')) return
+    try {
+      await axios.delete(API + '/api/technicians/' + id)
+      setTechnicians(prev => prev.filter(t => t.id !== id))
+    } catch (err) { alert(err.response?.data?.error || 'Could not remove.') }
+  }
+
+  async function finish() {
+    setCompleting(true)
+    try {
+      // Save opening hours
+      await axios.post(API + '/api/settings/opening_hours', { value: JSON.stringify(hours) })
+      // Mark onboarding complete
+      const { data } = await axios.patch(API + '/api/salon', { onboarding_complete: true })
+      onComplete(data)
+    } catch (err) {
+      alert('Could not complete setup. Please try again.')
+      setCompleting(false)
+    }
+  }
+
+  const card = { background:'#fff', borderRadius:16, padding:'32px 36px', boxShadow:'0 4px 24px rgba(0,0,0,0.08)', marginBottom:24 }
+
+  return (
+    <div style={{ minHeight:'100vh', background:'#f8f8fc', fontFamily:'ui-sans-serif, system-ui, sans-serif', padding:'40px 24px', boxSizing:'border-box' }}>
+      <div style={{ maxWidth:640, margin:'0 auto' }}>
+        {/* Header */}
+        <div style={{ textAlign:'center', marginBottom:36 }}>
+          <img src={orbitLogo} alt="Orbit" style={{ width:40, height:40, objectFit:'contain', marginBottom:12 }} />
+          <div style={{ fontSize:24, fontWeight:800, color:'#0f172a' }}>Welcome to Orbit Calendar</div>
+          <div style={{ fontSize:14, color:'#64748b', marginTop:6 }}>Let's set up your salon in 3 quick steps.</div>
+        </div>
+
+        {/* Progress bar */}
+        <div style={{ display:'flex', gap:8, marginBottom:32 }}>
+          {STEPS.map((label, i) => (
+            <div key={i} style={{ flex:1, textAlign:'center' }}>
+              <div style={{ height:4, borderRadius:4, background: i <= step ? '#0f172a' : '#e2e8f0', marginBottom:6, transition:'background 0.2s' }} />
+              <div style={{ fontSize:11, fontWeight: i === step ? 800 : 500, color: i === step ? '#0f172a' : '#94a3b8', textTransform:'uppercase', letterSpacing:0.5 }}>
+                {i < step ? '✓ ' : ''}{label}
+              </div>
+            </div>
+          ))}
+        </div>
+
+        {/* Step 0: Services */}
+        {step === 0 && (
+          <div style={card}>
+            <div style={{ fontSize:18, fontWeight:800, color:'#0f172a', marginBottom:4 }}>Add your services</div>
+            <div style={{ fontSize:13, color:'#64748b', marginBottom:20 }}>Add the treatments your salon offers. You can always add more later.</div>
+            <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10, marginBottom:12 }}>
+              <div style={{ gridColumn:'1/-1' }}>
+                <label style={lbl}>Service Name</label>
+                <input style={inp} value={newSvc.name} onChange={e => setNewSvc({...newSvc, name:e.target.value})} placeholder="e.g. Gel Manicure"
+                  onKeyDown={e => e.key === 'Enter' && addService()} />
+              </div>
+              <div>
+                <label style={lbl}>Duration (mins)</label>
+                <input style={inp} type="number" value={newSvc.duration_minutes} onChange={e => setNewSvc({...newSvc, duration_minutes:parseInt(e.target.value)})} />
+              </div>
+              <div>
+                <label style={lbl}>Price (£)</label>
+                <input style={inp} type="number" value={newSvc.price} onChange={e => setNewSvc({...newSvc, price:e.target.value})} placeholder="45" />
+              </div>
+              <div style={{ gridColumn:'1/-1' }}>
+                <label style={lbl}>Category</label>
+                <select style={inp} value={newSvc.category} onChange={e => setNewSvc({...newSvc, category:e.target.value})}>
+                  {CATEGORIES.map(c => <option key={c.label} value={c.label}>{c.label}</option>)}
+                </select>
+              </div>
+            </div>
+            <button onClick={addService} style={{ ...btnPrimary, width:'100%' }}>+ Add Service</button>
+
+            {services.length > 0 && (
+              <div style={{ marginTop:20, display:'flex', flexDirection:'column', gap:6 }}>
+                {CATEGORIES.map(cat => {
+                  const catSvcs = services.filter(s => s.category === cat.label)
+                  if (!catSvcs.length) return null
+                  return (
+                    <div key={cat.label}>
+                      <div style={{ display:'flex', alignItems:'center', gap:6, margin:'10px 0 6px' }}>
+                        <div style={{ width:10, height:10, borderRadius:2, background:cat.color }} />
+                        <span style={{ fontSize:11, fontWeight:800, color:'#64748b', textTransform:'uppercase', letterSpacing:0.5 }}>{cat.label}</span>
+                      </div>
+                      {catSvcs.map(s => (
+                        <div key={s.id} style={{ display:'flex', justifyContent:'space-between', alignItems:'center', padding:'9px 14px', background:'#f8fafc', borderRadius:10, border:'1px solid #e2e8f0', marginBottom:5 }}>
+                          <div style={{ display:'flex', alignItems:'center', gap:10 }}>
+                            <div style={{ width:10, height:10, borderRadius:'50%', background:cat.color }} />
+                            <span style={{ fontWeight:700, fontSize:13 }}>{s.name}</span>
+                            <span style={{ fontSize:12, color:'#94a3b8' }}>£{s.price} · {s.duration_minutes}m</span>
+                          </div>
+                          <button onClick={() => removeService(s.id)} style={{ background:'none', border:'none', color:'#ef4444', cursor:'pointer', fontSize:18, lineHeight:1, padding:'0 4px' }}>×</button>
+                        </div>
+                      ))}
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Step 1: Technicians */}
+        {step === 1 && (
+          <div style={card}>
+            <div style={{ fontSize:18, fontWeight:800, color:'#0f172a', marginBottom:4 }}>Add your team</div>
+            <div style={{ fontSize:13, color:'#64748b', marginBottom:20 }}>Add the technicians who work at your salon.</div>
+            <div style={{ display:'flex', gap:8, marginBottom:8 }}>
+              <input style={{...inp, flex:1}} value={newTechName} onChange={e => setNewTechName(e.target.value)}
+                placeholder="Technician name…" onKeyDown={e => e.key === 'Enter' && addTechnician()} />
+              <button onClick={addTechnician} style={btnPrimary}>Add</button>
+            </div>
+            {technicians.length > 0 && (
+              <div style={{ marginTop:14, display:'flex', flexDirection:'column', gap:8 }}>
+                {technicians.map(t => (
+                  <div key={t.id} style={{ display:'flex', justifyContent:'space-between', alignItems:'center', padding:'10px 14px', background:'#f8fafc', borderRadius:10, border:'1px solid #e2e8f0' }}>
+                    <span style={{ fontWeight:700, fontSize:14 }}>{t.name}</span>
+                    <button onClick={() => removeTechnician(t.id)} style={{ background:'none', border:'none', color:'#ef4444', cursor:'pointer', fontSize:18, lineHeight:1, padding:'0 4px' }}>×</button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Step 2: Opening Hours */}
+        {step === 2 && (
+          <div style={card}>
+            <div style={{ fontSize:18, fontWeight:800, color:'#0f172a', marginBottom:4 }}>Set your opening hours</div>
+            <div style={{ fontSize:13, color:'#64748b', marginBottom:20 }}>These control when clients can book appointments online.</div>
+            <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
+              {hours.map((h, i) => (
+                <div key={h.day} style={{ display:'flex', alignItems:'center', gap:12, padding:'10px 14px', borderRadius:10,
+                  background: h.open ? '#f0fdf4' : '#f8fafc', border:`1px solid ${h.open ? '#bbf7d0' : '#e2e8f0'}` }}>
+                  <input type="checkbox" checked={h.open} onChange={() => setHours(prev => prev.map((x, idx) => idx !== i ? x : { ...x, open: !x.open }))}
+                    style={{ width:16, height:16, cursor:'pointer', accentColor:'#059669' }} />
+                  <span style={{ fontWeight:700, fontSize:13, width:100, color: h.open ? '#0f172a' : '#94a3b8' }}>{h.day}</span>
+                  {h.open ? (
+                    <>
+                      <input type="text" value={h.from} onChange={e => setHours(prev => prev.map((x, idx) => idx !== i ? x : { ...x, from: e.target.value }))}
+                        style={{ ...inp, width:72, padding:'6px 10px' }} placeholder="09:00" />
+                      <span style={{ fontSize:13, color:'#64748b' }}>–</span>
+                      <input type="text" value={h.to} onChange={e => setHours(prev => prev.map((x, idx) => idx !== i ? x : { ...x, to: e.target.value }))}
+                        style={{ ...inp, width:72, padding:'6px 10px' }} placeholder="19:00" />
+                    </>
+                  ) : (
+                    <span style={{ fontSize:12, color:'#94a3b8', fontStyle:'italic' }}>Closed</span>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Nav buttons */}
+        <div style={{ display:'flex', gap:12, justifyContent:'space-between' }}>
+          <button onClick={() => step === 0 ? null : setStep(s => s - 1)}
+            style={{ ...btnGhost, visibility: step === 0 ? 'hidden' : 'visible' }}>← Back</button>
+          {step < 2 ? (
+            <button onClick={() => setStep(s => s + 1)} style={btnPrimary}>
+              Next →
+            </button>
+          ) : (
+            <button onClick={finish} disabled={completing} style={{ ...btnGreen, opacity: completing ? 0.7 : 1 }}>
+              {completing ? 'Finishing…' : 'Finish Setup →'}
+            </button>
+          )}
+        </div>
+        {(step === 0 || step === 1) && (
+          <div style={{ marginTop:12, textAlign:'center' }}>
+            <button onClick={() => step < 2 ? setStep(s => s + 1) : finish()} style={{ background:'none', border:'none', color:'#94a3b8', fontSize:12, cursor:'pointer', padding:0 }}>
+              Skip this step →
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
 // Auth wrapper — root export
 export default function App() {
  const [token, setToken] = useState(() => {
@@ -3017,7 +3725,11 @@ export default function App() {
  const [salon, setSalon] = useState(() => {
    try { return JSON.parse(localStorage.getItem('orbit_salon') || 'null') } catch { return null }
  })
- const [page, setPage] = useState('login') // 'login' | 'signup'
+ const [page, setPage] = useState(() => {
+   const p = new URLSearchParams(window.location.search).get('page')
+   if (p === 'terms' || p === 'privacy') return p
+   return 'login'
+ }) // 'login' | 'signup' | 'terms' | 'privacy'
 
  useEffect(() => {
    if (token) {
@@ -3057,11 +3769,22 @@ export default function App() {
  }
 
  if (!token) {
+   if (page === 'terms') return <TermsPage onBack={() => setPage('login')} />
+   if (page === 'privacy') return <PrivacyPage onBack={() => setPage('login')} />
    if (page === 'signup') {
-     return <SignupPage onLogin={handleLogin} onBack={() => setPage('login')} />
+     return <SignupPage onLogin={handleLogin} onBack={() => setPage('login')}
+       onShowTerms={() => setPage('terms')} onShowPrivacy={() => setPage('privacy')} />
    }
    return <LoginPage onLogin={(t, s, nav) => nav === 'signup' ? setPage('signup') : handleLogin(t, s)} />
  }
 
- return <MainApp salon={salon} onLogout={handleLogout} />
+ // First-time setup: show onboarding wizard until complete
+ if (salon?.onboarding_complete === false) {
+   return <OnboardingWizard salon={salon} onComplete={(updated) => {
+     setSalon(updated)
+     localStorage.setItem('orbit_salon', JSON.stringify(updated))
+   }} />
+ }
+
+ return <MainApp salon={salon} onLogout={handleLogout} setSalon={setSalon} />
 }
