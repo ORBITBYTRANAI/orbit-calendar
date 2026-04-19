@@ -205,10 +205,6 @@ function CheckoutModal({ booking, services, onClose, onComplete, receiptData, co
  })
  setDone(true)
  onComplete(booking.id, false)
- // Reset loyalty discount flag on the customer after checkout
- if (discountAmt > 0 && booking.customer_id) {
-   axios.patch(API + '/api/customers/' + booking.customer_id, { loyalty_discount_active: false, stars_earned: 0 }).catch(() => {})
- }
  } catch (err) {
  alert(err.response?.data?.error || 'Checkout failed.')
  setLoading(false)
@@ -462,7 +458,171 @@ function CheckoutModal({ booking, services, onClose, onComplete, receiptData, co
  )
 }
 
-// Opening Hours Modal 
+// Group Checkout Modal
+function GroupCheckoutModal({ groupBookings, services, onClose, onComplete, country, timezone, loyaltyDiscount }) {
+  const isMobile = useIsMobile()
+  const overlay = { position:'fixed', inset:0, background:'rgba(0,0,0,0.45)', display:'flex', alignItems: isMobile ? 'flex-start' : 'center', justifyContent:'center', zIndex:9999, padding: isMobile ? 0 : 16 }
+  const box = isMobile
+    ? { background:'#fff', width:'100%', height:'100dvh', maxHeight:'100dvh', overflowY:'auto', display:'flex', flexDirection:'column', padding:'16px 20px 32px' }
+    : { background:'#fff', borderRadius:18, padding:28, width:520, maxHeight:'90vh', overflowY:'auto', boxShadow:'0 20px 60px rgba(0,0,0,0.25)' }
+
+  const discountAmt = (loyaltyDiscount && !groupBookings.every(b => b.status === 'completed')) ? (parseFloat(loyaltyDiscount) || 0) : 0
+
+  const memberTotals = groupBookings.map(bk => {
+    const svcIds = bk.service_ids?.length ? bk.service_ids : (bk.service_id ? [bk.service_id] : [])
+    const svcs = svcIds.map(id => services.find(s => s.id === id)).filter(Boolean)
+    const t = svcs.reduce((s, sv) => s + parseFloat(sv?.price || 0), 0)
+    return { bk, svcs, t }
+  })
+  const combinedRaw = memberTotals.reduce((s, m) => s + m.t, 0)
+
+  const [splitMode, setSplitMode]         = useState(false)
+  const [combinedAmt, setCombinedAmt]     = useState(Math.max(0, combinedRaw - discountAmt))
+  const [combinedSplits, setCombinedSplits] = useState([{ method:'Cash', amount: Math.max(0, combinedRaw - discountAmt) }])
+  const [personPayments, setPersonPayments] = useState(() =>
+    groupBookings.map((bk, i) => ({ method:'Cash', amount: memberTotals[i]?.t || 0 }))
+  )
+  const [notes, setNotes]   = useState('')
+  const [loading, setLoading] = useState(false)
+  const [done, setDone]     = useState(false)
+
+  const splitTotal = combinedSplits.reduce((s, p) => s + (parseFloat(p.amount) || 0), 0)
+  const balanced   = Math.abs(combinedAmt - splitTotal) < 0.01
+
+  function updatePersonPayment(i, field, val) {
+    setPersonPayments(prev => prev.map((p, idx) => idx === i ? { ...p, [field]: val } : p))
+  }
+
+  async function handleGroupCheckout() {
+    setLoading(true)
+    try {
+      if (splitMode) {
+        for (let i = 0; i < groupBookings.length; i++) {
+          await axios.post(API + '/api/checkouts', {
+            booking_id:   groupBookings[i].id,
+            total_amount: personPayments[i].amount,
+            payments:     [{ method: personPayments[i].method, amount: personPayments[i].amount }],
+            notes,
+          })
+        }
+      } else {
+        if (!balanced) { alert(`Payment total £${splitTotal.toFixed(2)} doesn't match bill £${combinedAmt.toFixed(2)}`); setLoading(false); return }
+        const [primary, ...rest] = groupBookings
+        await axios.post(API + '/api/checkouts', {
+          booking_id:        primary.id,
+          total_amount:      combinedAmt,
+          payments:          combinedSplits,
+          notes,
+          group_booking_ids: rest.map(b => b.id),
+        })
+      }
+      setDone(true)
+      onComplete(groupBookings.map(b => b.id))
+    } catch (err) {
+      alert(err.response?.data?.error || 'Checkout failed.')
+      setLoading(false)
+    }
+  }
+
+  if (done) return (
+    <div style={overlay}><div style={box}>
+      <div style={{ textAlign:'center', padding:'24px 0' }}>
+        <div style={{ fontSize:48, marginBottom:8 }}>✓</div>
+        <div style={{ fontSize:20, fontWeight:900, color:'#059669' }}>Group Checkout Complete</div>
+        <div style={{ fontSize:13, color:'#94a3b8', marginTop:4 }}>{groupBookings.length} bookings marked completed</div>
+      </div>
+      <button onClick={() => onComplete(groupBookings.map(b => b.id), true)} style={{ ...btnGhost, width:'100%', marginTop:8 }}>Close</button>
+    </div></div>
+  )
+
+  return (
+    <div style={overlay}><div style={box}>
+      <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:16 }}>
+        <h2 style={{ fontSize:18, fontWeight:900 }}>Group Checkout ({groupBookings.length} people)</h2>
+        <button onClick={onClose} style={{ background:'none', border:'none', fontSize:22, cursor:'pointer', color:'#94a3b8', minHeight:44, minWidth:44, display:'flex', alignItems:'center', justifyContent:'center' }}>×</button>
+      </div>
+
+      {/* Member list */}
+      {memberTotals.map(({ bk, svcs, t }, i) => (
+        <div key={bk.id} style={{ background:'#f8fafc', border:'1px solid #e2e8f0', borderRadius:10, padding:'10px 14px', marginBottom:8 }}>
+          <div style={{ display:'flex', justifyContent:'space-between', fontWeight:700, fontSize:13, marginBottom:3 }}>
+            <span>Person {i + 1}{bk.customers?.full_name ? ' — ' + bk.customers.full_name : ''}</span>
+            <span>£{t.toFixed(2)}</span>
+          </div>
+          <div style={{ fontSize:12, color:'#64748b' }}>
+            {svcs.length ? svcs.map(s => s.name).join(', ') : (bk.services?.name || 'TBC')}
+            {bk.technicians?.name ? ' · ' + bk.technicians.name : ''}
+          </div>
+          {splitMode && (
+            <div style={{ display:'flex', gap:8, marginTop:8 }}>
+              <select style={{ ...inp, flex:'0 0 130px', width:'auto', fontSize:12, padding:'7px 10px' }}
+                value={personPayments[i]?.method || 'Cash'}
+                onChange={e => updatePersonPayment(i, 'method', e.target.value)}>
+                {getPaymentMethods(country).map(m => <option key={m}>{m}</option>)}
+              </select>
+              <input style={{ ...inp, flex:1, width:'auto', fontSize:12, padding:'7px 10px' }}
+                type="number" min="0" step="0.01"
+                value={personPayments[i]?.amount || 0}
+                onChange={e => updatePersonPayment(i, 'amount', parseFloat(e.target.value) || 0)} />
+            </div>
+          )}
+        </div>
+      ))}
+
+      {/* Split toggle */}
+      <label style={{ display:'flex', alignItems:'center', gap:10, padding:'10px 14px', background:'#f1f5f9', borderRadius:10, marginBottom:12, cursor:'pointer', fontSize:13, fontWeight:700, color:'#0f172a' }}>
+        <input type="checkbox" checked={splitMode} onChange={e => setSplitMode(e.target.checked)} style={{ width:16, height:16, accentColor:'#0f172a' }} />
+        Split Group — each person pays individually
+      </label>
+
+      {/* Combined payment section */}
+      {!splitMode && (<>
+        {discountAmt > 0 && (
+          <div style={{ display:'flex', justifyContent:'space-between', padding:'8px 12px', background:'#f0fdf4', border:'1px solid #bbf7d0', borderRadius:8, marginBottom:8, fontSize:13, fontWeight:700, color:'#059669' }}>
+            <span>Loyalty Discount Applied! £{discountAmt.toFixed(2)} Off</span>
+          </div>
+        )}
+        <label style={lbl}>Total Amount (£)</label>
+        <input style={inp} type="number" min="0" step="0.01" value={combinedAmt}
+          onChange={e => { const v = parseFloat(e.target.value) || 0; setCombinedAmt(v); if (combinedSplits.length === 1) setCombinedSplits([{ ...combinedSplits[0], amount: v }]) }} />
+        <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginTop:14, marginBottom:6 }}>
+          <span style={{ fontSize:11, fontWeight:800, color:'#64748b', textTransform:'uppercase', letterSpacing:0.8 }}>Payment Method</span>
+          <button onClick={() => setCombinedSplits(prev => [...prev, { method:'Cash', amount:0 }])} style={{ fontSize:12, padding:'4px 12px', borderRadius:8, border:'1px solid #e2e8f0', background:'#f8fafc', cursor:'pointer', fontWeight:700 }}>+ Split</button>
+        </div>
+        {combinedSplits.map((split, i) => (
+          <div key={i} style={{ display:'flex', gap:8, marginBottom:8, alignItems:'center' }}>
+            <select style={{ ...inp, flex:'0 0 160px', width:'auto' }} value={split.method}
+              onChange={e => setCombinedSplits(prev => prev.map((s, idx) => idx === i ? { ...s, method: e.target.value } : s))}>
+              {getPaymentMethods(country).map(m => <option key={m}>{m}</option>)}
+            </select>
+            <input style={{ ...inp, flex:1, width:'auto' }} type="number" min="0" step="0.01"
+              value={split.amount} onChange={e => setCombinedSplits(prev => prev.map((s, idx) => idx === i ? { ...s, amount: e.target.value } : s))} />
+            {combinedSplits.length > 1 && (
+              <button onClick={() => setCombinedSplits(prev => prev.filter((_, idx) => idx !== i))}
+                style={{ background:'none', border:'none', color:'#ef4444', cursor:'pointer', fontSize:22, lineHeight:1, padding:'0 4px' }}>×</button>
+            )}
+          </div>
+        ))}
+        <div style={{ padding:'8px 12px', borderRadius:8, marginBottom:4, background: balanced ? '#f0fdf4' : '#fef2f2', border:`1px solid ${balanced ? '#bbf7d0' : '#fecaca'}`, fontSize:13, fontWeight:700, color: balanced ? '#059669' : '#ef4444' }}>
+          {balanced ? `Fully paid — £${combinedAmt.toFixed(2)}` : `£${Math.abs(combinedAmt - splitTotal).toFixed(2)} ${combinedAmt - splitTotal > 0 ? 'remaining' : 'overpaid'}`}
+        </div>
+      </>)}
+
+      <label style={lbl}>Notes (optional)</label>
+      <textarea style={{ ...inp, height:60, resize:'vertical' }} value={notes} onChange={e => setNotes(e.target.value)} placeholder="Any checkout notes…" />
+
+      <div style={{ display:'flex', gap:10, marginTop:20 }}>
+        <button onClick={handleGroupCheckout} disabled={loading}
+          style={{ ...btnGreen, flex:1, opacity: loading ? 0.7 : 1 }}>
+          {loading ? 'Processing…' : splitMode ? 'Complete Split Checkout' : `Complete Group Checkout · £${combinedAmt.toFixed(2)}`}
+        </button>
+        <button onClick={onClose} style={btnGhost}>Cancel</button>
+      </div>
+    </div></div>
+  )
+}
+
+// Opening Hours Modal
 function OpeningHoursModal({ hours, onSave, onClose }) {
  const [local, setLocal] = useState(hours.map(h => ({ ...h })))
 
@@ -1495,6 +1655,7 @@ function MainApp({ salon, onLogout }) {
  const [checkoutBooking, setCheckoutBooking] = useState(null)
  const [checkoutReceiptData, setCheckoutReceiptData] = useState(null)
  const [checkoutLoyaltyDiscount, setCheckoutLoyaltyDiscount] = useState(0)
+ const [checkoutGroupBookings, setCheckoutGroupBookings] = useState(null) // non-null = group checkout
  const [loyaltyDiscountAmt, setLoyaltyDiscountAmt] = useState(0)
  const [openingHours, setOpeningHours] = useState(DEFAULT_HOURS)
  const [hoursLoaded, setHoursLoaded] = useState(false)
@@ -2461,7 +2622,21 @@ await axios.put(API + '/api/bookings/' + editingId, {
  <OpeningHoursModal hours={openingHours} onSave={saveHours} onClose={() => setShowHours(false)} />
  )}
 
- {showCheckout && checkoutBooking && (
+ {showCheckout && checkoutGroupBookings && (
+ <GroupCheckoutModal
+   groupBookings={checkoutGroupBookings}
+   services={services}
+   country={salon?.country}
+   timezone={salon?.timezone}
+   loyaltyDiscount={checkoutLoyaltyDiscount}
+   onClose={() => { setShowCheckout(false); setCheckoutGroupBookings(null) }}
+   onComplete={(ids, closeModal = true) => {
+     setBookings(prev => prev.map(b => ids.includes(b.id) ? { ...b, status:'completed' } : b))
+     if (closeModal) { setShowCheckout(false); setCheckoutGroupBookings(null) }
+   }}
+ />
+ )}
+ {showCheckout && checkoutBooking && !checkoutGroupBookings && (
  <CheckoutModal
  booking={checkoutBooking}
  services={services}
@@ -2615,6 +2790,19 @@ return (
    try { const r = await axios.get(API + '/api/settings/loyalty_discount'); loyaltyAmt = parseFloat(r.data?.value || '0') || 0 } catch (_) {}
  }
  setCheckoutLoyaltyDiscount(loyaltyAmt)
+ // Group booking — fetch all sibling bookings and show group checkout
+ if (b?.group_id) {
+   try {
+     const gr = await axios.get(API + '/api/bookings/group/' + b.group_id)
+     const pending = gr.data.filter(bk => bk.status !== 'completed')
+     if (pending.length > 1) {
+       setCheckoutGroupBookings(pending)
+       setShowCheckout(true)
+       return
+     }
+   } catch (_) {}
+ }
+ setCheckoutGroupBookings(null)
  setCheckoutBooking(b)
  setShowCheckout(true)
  }} style={{...btnGreen, flex:1}}>Checkout</button>
