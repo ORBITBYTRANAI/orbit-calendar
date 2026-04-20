@@ -1945,6 +1945,8 @@ ${closedDayNames.map(d => `.fc .fc-day[data-dow="${d}"] { background: #f1f5f9 !i
  }, [emptyForm, salon])
 
  async function openEdit(info) {
+ // Guard: ignore clicks on the mobile pending-slot highlight (background event)
+ if (info.event.id === '__pending_slot__') return
  const b = info.event.extendedProps
  if (b.isBlock) {
    const blockId = b.blockId
