@@ -157,7 +157,7 @@ export default function ShopView() {
       {/* Cart toast */}
       {cartToast && (
         <div style={{ position: 'fixed', bottom: 24, right: 24, zIndex: 9999, background: '#1e293b', color: '#fff', borderRadius: 10, padding: '12px 20px', fontSize: 13, fontWeight: 700, boxShadow: '0 4px 20px rgba(0,0,0,0.25)' }}>
-          ✓ {cartToast}
+          {cartToast}
         </div>
       )}
 
@@ -290,7 +290,7 @@ function ShopTab({ cartItems, onAddToCart, onUpdateQty, onClearCart }) {
                     </div>
                     {items.map(item => (
                       <div key={item.product_id} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
-                        <span style={{ fontSize: 18 }}>{item.emoji || '📦'}</span>
+                        <span style={{ fontSize: 18 }}>''</span>
                         <div style={{ flex: 1, minWidth: 0 }}>
                           <div style={{ fontSize: 12, fontWeight: 700, color: '#0f172a', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{item.name}</div>
                           <div style={{ fontSize: 11, color: '#64748b' }}>£{parseFloat(item.price || 0).toFixed(2)} × {item.qty}</div>
@@ -322,7 +322,7 @@ function ShopTab({ cartItems, onAddToCart, onUpdateQty, onClearCart }) {
                   </div>
                 ) : (
                   <div style={{ fontSize: 11, color: '#166534', background: '#f0fdf4', borderRadius: 6, padding: '5px 8px', marginBottom: 8, fontWeight: 700 }}>
-                    ✓ Free shipping
+                    Free shipping
                   </div>
                 )}
                 <button onClick={startCheckout} disabled={placing} style={{ width: '100%', padding: '10px 0', borderRadius: 9, border: 'none', background: '#0f172a', color: '#fff', fontWeight: 800, fontSize: 13, cursor: 'pointer', fontFamily: 'inherit' }}>
@@ -354,7 +354,7 @@ function ProductCard({ product: p, onAdd }) {
     <div style={{ ...card, padding: 14, display: 'flex', flexDirection: 'column', gap: 10, alignItems: 'center', textAlign: 'center' }}>
       {p.image_base64
         ? <img src={p.image_base64} alt={p.name} style={{ width: 64, height: 64, objectFit: 'cover', borderRadius: 8 }} />
-        : <div style={{ fontSize: 32 }}>{p.emoji || '📦'}</div>
+        : <div style={{ fontSize: 32 }}>{''}</div>
       }
       <div style={{ fontSize: 13, fontWeight: 700, color: '#0f172a', lineHeight: 1.3, flex: 1 }}>{p.name}</div>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
@@ -398,7 +398,7 @@ function StripePaymentForm({ subtotal, shipping, total, onSuccess, onClose }) {
 
   if (done) return (
     <div style={overlay}><div style={{ ...box, textAlign: 'center', padding: '48px 32px' }}>
-      <div style={{ fontSize: 52, marginBottom: 12 }}>✓</div>
+      <div style={{ fontSize: 52, marginBottom: 12, fontWeight:900, color:'#059669' }}>Done</div>
       <h2 style={{ fontSize: 18, fontWeight: 800, color: '#16a34a', margin: '0 0 8px' }}>Payment successful!</h2>
       <p style={{ fontSize: 14, color: '#64748b', margin: 0 }}>Your order is being processed. Redirecting to Orders…</p>
     </div></div>
@@ -460,7 +460,7 @@ function CartTab({ cartItems, onUpdateQty, onRemove, onClearCart, onOrderPlaced,
       name:          p.name || '',
       variant:       p.variant || '',
       price:         p.price || 0,
-      emoji:         p.emoji || '📦',
+      emoji:         '',
       image_base64:  p.image_base64 || null,
       supplier_id:   p.supplier_id || null,
       supplier_name: ci.supplier_name || p.suppliers?.name || null,
@@ -495,7 +495,7 @@ function CartTab({ cartItems, onUpdateQty, onRemove, onClearCart, onOrderPlaced,
   if (!enriched.length) {
     return (
       <div style={{ textAlign: 'center', padding: '60px 0', color: '#94a3b8' }}>
-        <div style={{ fontSize: 36, marginBottom: 12 }}>🛒</div>
+        <div style={{ fontSize: 36, marginBottom: 12 }}>Cart</div>
         <div style={{ fontSize: 14, fontWeight: 700, color: '#0f172a', marginBottom: 6 }}>Your cart is empty</div>
         <div style={{ fontSize: 13 }}>Click <strong>Reorder</strong> on any item in Inventory to add it here.</div>
       </div>
@@ -552,7 +552,7 @@ function CartTab({ cartItems, onUpdateQty, onRemove, onClearCart, onOrderPlaced,
             <span>Subtotal</span><span>£{subtotal.toFixed(2)}</span>
           </div>
           <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, color: '#64748b', marginBottom: 8, paddingBottom: 10, borderBottom: '1px solid #f1f5f9' }}>
-            <span>Shipping</span><span>{shipping === 0 ? '✓ Free' : `£${shipping.toFixed(2)}`}</span>
+            <span>Shipping</span><span>{shipping === 0 ? 'Free' : `£${shipping.toFixed(2)}`}</span>
           </div>
           <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 18, fontWeight: 900, color: BRAND }}>
             <span>Total</span><span>£{total.toFixed(2)}</span>
@@ -563,7 +563,7 @@ function CartTab({ cartItems, onUpdateQty, onRemove, onClearCart, onOrderPlaced,
             </div>
           ) : (
             <div style={{ marginTop: 10, padding: '7px 12px', background: '#f0fdf4', borderRadius: 7, fontSize: 12, color: '#166534', fontWeight: 700 }}>
-              ✓ Free shipping
+              Free shipping
             </div>
           )}
         </div>
@@ -692,7 +692,7 @@ function InventoryTab({ onAddToCart }) {
                 <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
                   {p.image_base64
                     ? <img src={p.image_base64} alt={p.name} style={{ width: 36, height: 36, objectFit: 'cover', borderRadius: 6, flexShrink: 0 }} />
-                    : <span style={{ fontSize: 24, flexShrink: 0 }}>{p.emoji || '📦'}</span>
+                    : <span style={{ fontSize: 24, flexShrink: 0 }}>{''}</span>
                   }
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ fontWeight: 700, color: '#0f172a', fontSize: 14 }}>{p.name}</div>
@@ -895,7 +895,7 @@ function OrdersTab({ isAdmin }) {
                   const p = item.shop_products || {}
                   return (
                     <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 0', borderBottom: '1px solid #f1f5f9' }}>
-                      <span style={{ fontSize: 20 }}>{p.emoji || '📦'}</span>
+                      <span style={{ fontSize: 20 }}>{''}</span>
                       <div style={{ flex: 1 }}>
                         <div style={{ fontWeight: 700, fontSize: 13 }}>{p.name}{p.variant ? ` (${p.variant})` : ''}</div>
                         <div style={{ fontSize: 12, color: '#64748b' }}>£{parseFloat(item.unit_price || 0).toFixed(2)} × {item.qty}</div>
@@ -1104,7 +1104,7 @@ function AdminOrdersSection() {
               const p = item.shop_products || {}
               return (
                 <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 0', borderBottom: '1px solid #f1f5f9' }}>
-                  <span style={{ fontSize: 20 }}>{p.emoji || '📦'}</span>
+                  <span style={{ fontSize: 20 }}>{''}</span>
                   <div style={{ flex: 1 }}>
                     <div style={{ fontWeight: 700, fontSize: 13 }}>{p.name}{p.variant ? ` (${p.variant})` : ''}</div>
                     {p.sku && <div style={{ fontSize: 11, fontFamily: 'monospace', color: '#94a3b8' }}>{p.sku}</div>}
@@ -1165,13 +1165,13 @@ function PackingSection() {
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
           <button onClick={load} style={{ ...btnCancel, padding: '7px 14px', fontSize: 12 }}>Refresh</button>
-          <button onClick={() => window.print()} style={{ ...btnSave, padding: '7px 16px', fontSize: 12 }}>🖨 Print</button>
+          <button onClick={() => window.print()} style={{ ...btnSave, padding: '7px 16px', fontSize: 12 }}>Print</button>
         </div>
       </div>
 
       {orders.length === 0 ? (
         <div style={{ textAlign: 'center', padding: '48px 0', color: '#94a3b8' }}>
-          <div style={{ fontSize: 36, marginBottom: 8 }}>📦</div>
+          <div style={{ fontSize: 36, marginBottom: 8, color:'#94a3b8' }}>[ ]</div>
           <div style={{ fontSize: 14, fontWeight: 700, color: '#0f172a', marginBottom: 4 }}>All packed!</div>
           <div style={{ fontSize: 13 }}>No paid or processing orders.</div>
         </div>
@@ -1214,7 +1214,7 @@ function PackingSection() {
                     const p = item.shop_products || {}
                     return (
                       <div key={i} className="packing-item" style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '7px 0', borderBottom: '1px solid #f1f5f9' }}>
-                        <span style={{ fontSize: 18 }}>{p.emoji || '📦'}</span>
+                        <span style={{ fontSize: 18 }}>{''}</span>
                         <div style={{ flex: 1 }}>
                           <span style={{ fontWeight: 700, fontSize: 13 }}>{p.name}</span>
                           {p.variant && <span style={{ fontSize: 12, color: '#64748b' }}> ({p.variant})</span>}
@@ -1250,7 +1250,7 @@ function AdminTab() {
 
   const adminTabs = [
     { id: 'orders',    label: 'Orders' },
-    { id: 'packing',   label: '📦 Packing' },
+    { id: 'packing',   label: 'Packing' },
     { id: 'suppliers', label: 'Suppliers' },
     { id: 'products',  label: 'Products' },
   ]
@@ -1556,7 +1556,7 @@ function ProductsSection({ products, suppliers, onRefresh }) {
               <div style={{ flexShrink: 0 }}>
                 {p.image_base64
                   ? <img src={p.image_base64} alt={p.name} style={{ width: 60, height: 60, objectFit: 'cover', borderRadius: 8 }} />
-                  : <div style={{ width: 60, height: 60, borderRadius: 8, background: '#f1f5f9', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 24 }}>{p.emoji || '📦'}</div>
+                  : <div style={{ width: 60, height: 60, borderRadius: 8, background: '#f1f5f9', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 24 }}>{''}</div>
                 }
               </div>
               <div style={{ flex: 1, minWidth: 0 }}>
@@ -1589,7 +1589,7 @@ function ProductsSection({ products, suppliers, onRefresh }) {
                     <TD>
                       {p.image_base64
                         ? <img src={p.image_base64} alt={p.name} style={{ width: 40, height: 40, objectFit: 'cover', borderRadius: 6 }} />
-                        : <div style={{ width: 40, height: 40, borderRadius: 6, background: '#f1f5f9', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18 }}>{p.emoji || '📦'}</div>
+                        : <div style={{ width: 40, height: 40, borderRadius: 6, background: '#f1f5f9', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18 }}>{''}</div>
                       }
                     </TD>
                     <TD style={{ fontWeight: 700 }}>{p.name}</TD>

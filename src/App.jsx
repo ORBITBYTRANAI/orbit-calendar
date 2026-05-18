@@ -175,11 +175,17 @@ function CheckoutModal({ booking, services, onClose, onComplete, receiptData, co
    try {
      const { data } = await axios.post(API + '/api/gift-cards/validate', { code })
      setGcValidation(prev => ({ ...prev, [i]: { ok: true, ...data } }))
-     // Auto-fill amount = min(card remaining, checkout remaining)
-     const currentSplitTotal = splits.reduce((s, p, idx) => idx === i ? s : s + (parseFloat(p.amount) || 0), 0)
-     const checkoutRemaining = parseFloat((total - currentSplitTotal).toFixed(2))
-     const apply = parseFloat(Math.min(data.remaining_balance, checkoutRemaining > 0 ? checkoutRemaining : data.remaining_balance).toFixed(2))
-     updateSplit(i, 'amount', apply)
+     // Set GC amount = min(balance, total); adjust remaining splits so no overpay
+     const gcApply = parseFloat(Math.min(data.remaining_balance, total).toFixed(2))
+     const leftover = parseFloat((total - gcApply).toFixed(2))
+     setSplits(prev => {
+       const firstNonGC = prev.findIndex((_, xi) => xi !== i)
+       return prev.map((s, idx) => {
+         if (idx === i) return { ...s, amount: gcApply }
+         if (idx === firstNonGC) return { ...s, amount: leftover }
+         return { ...s, amount: 0 }
+       })
+     })
    } catch (err) {
      setGcValidation(prev => ({ ...prev, [i]: { ok: false, error: err.response?.data?.error || 'Invalid gift card' } }))
    }
@@ -374,13 +380,14 @@ function CheckoutModal({ booking, services, onClose, onComplete, receiptData, co
  {gcSuggestion && !done && !splits.some(s => s.method === 'Gift Card') && (
    <div style={{ margin:'14px 0 4px', padding:'10px 14px', background:'#fdf6ee', border:'1px solid #f4d9b0', borderRadius:10, display:'flex', alignItems:'center', justifyContent:'space-between', gap:10 }}>
      <div>
-       <div style={{ fontSize:12, fontWeight:800, color:'#92400e' }}>🎁 Gift card detected</div>
+       <div style={{ fontSize:12, fontWeight:800, color:'#92400e' }}>Gift card detected</div>
        <div style={{ fontSize:11, color:'#b45309', marginTop:2 }}>Code <strong>{gcSuggestion.code}</strong> — £{parseFloat(gcSuggestion.remaining_balance).toFixed(2)} remaining</div>
      </div>
      <button onClick={() => {
-       const gcAmount = parseFloat(Math.min(gcSuggestion.remaining_balance, remaining > 0 ? remaining : gcSuggestion.remaining_balance).toFixed(2))
+       const gcAmount = parseFloat(Math.min(gcSuggestion.remaining_balance, total).toFixed(2))
+       const leftover = parseFloat((total - gcAmount).toFixed(2))
        setSplits(prev => {
-         const updated = prev.map((s, i) => i === 0 ? { ...s, amount: parseFloat(Math.max(0, total - gcAmount).toFixed(2)) } : s)
+         const updated = prev.map((s, i) => i === 0 ? { ...s, amount: leftover } : s)
          return [...updated, { method: 'Gift Card', gift_card_code: gcSuggestion.code, amount: gcAmount }]
        })
        setGcSuggestion(null)
@@ -527,7 +534,7 @@ function GroupCheckoutModal({ groupBookings, services, onClose, onComplete, coun
   if (done) return (
     <div style={overlay}><div style={box}>
       <div style={{ textAlign:'center', padding:'24px 0' }}>
-        <div style={{ fontSize:48, marginBottom:8 }}>✓</div>
+        <div style={{ fontSize:48, marginBottom:8, fontWeight:900, color:'#059669' }}>Done</div>
         <div style={{ fontSize:20, fontWeight:900, color:'#059669' }}>Group Checkout Complete</div>
         <div style={{ fontSize:13, color:'#94a3b8', marginTop:4 }}>{groupBookings.length} bookings marked completed</div>
       </div>
@@ -805,13 +812,13 @@ function InboxView({ country, salonId }) {
              onKeyDown={e => e.key === 'Enter' && renameFolder(f.id)}
              autoFocus style={{ flex:1, padding:'4px 8px', borderRadius:6, border:'1px solid #c9a96e', fontSize:12, outline:'none' }} />
            <button onClick={() => renameFolder(f.id)} style={{ padding:'3px 9px', fontSize:11, borderRadius:6, border:'none', background:'#0f172a', color:'#fff', cursor:'pointer', fontWeight:700 }}>Save</button>
-           <button onClick={() => setRenamingId(null)} style={{ padding:'3px 8px', fontSize:11, borderRadius:6, border:'1px solid #e2e8f0', background:'#fff', cursor:'pointer' }}>✕</button>
+           <button onClick={() => setRenamingId(null)} style={{ padding:'3px 8px', fontSize:11, borderRadius:6, border:'1px solid #e2e8f0', background:'#fff', cursor:'pointer' }}>x</button>
          </>
        ) : (
          <>
-           <span style={{ flex:1, fontSize:13, fontWeight:600 }}>📁 {f.name}</span>
+           <span style={{ flex:1, fontSize:13, fontWeight:600 }}>{f.name}</span>
            <button onClick={() => { setRenamingId(f.id); setRenamingName(f.name) }} style={{ padding:'2px 9px', fontSize:11, borderRadius:6, border:'1px solid #e2e8f0', background:'#fff', cursor:'pointer' }}>Rename</button>
-           <button onClick={() => deleteFolder(f.id)} style={{ padding:'2px 8px', fontSize:11, borderRadius:6, border:'none', background:'#fee2e2', color:'#ef4444', cursor:'pointer', fontWeight:800 }}>✕</button>
+           <button onClick={() => deleteFolder(f.id)} style={{ padding:'2px 8px', fontSize:11, borderRadius:6, border:'none', background:'#fee2e2', color:'#ef4444', cursor:'pointer', fontWeight:800 }}>x</button>
          </>
        )}
      </div>
@@ -829,7 +836,7 @@ function InboxView({ country, salonId }) {
  {showEmailSettings && (
  <div style={{ padding:'12px 16px', background:'#fffbeb', borderBottom:'2px solid #f59e0b' }}>
    <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:8 }}>
-     <span style={{ fontWeight:800, fontSize:12, color:'#92400e', textTransform:'uppercase', letterSpacing:0.5 }}>✉️ Email Forwarding</span>
+     <span style={{ fontWeight:800, fontSize:12, color:'#92400e', textTransform:'uppercase', letterSpacing:0.5 }}>Email Forwarding</span>
      <button onClick={() => setShowEmailSettings(false)} style={{ background:'none', border:'none', color:'#94a3b8', cursor:'pointer', fontSize:18, lineHeight:1 }}>×</button>
    </div>
    <p style={{ fontSize:12, color:'#78350f', lineHeight:1.6, marginBottom:10 }}>
@@ -855,10 +862,10 @@ function InboxView({ country, salonId }) {
      <div style={{ display:'flex', gap:5 }}>
        <button onClick={() => { setShowEmailSettings(v => !v); setShowFolderMgr(false) }}
          title="Email forwarding setup"
-         style={{ padding:'4px 8px', borderRadius:7, border:'1px solid #e2e8f0', background: showEmailSettings ? '#fffbeb' : '#f8fafc', fontSize:14, cursor:'pointer' }}>✉️</button>
+         style={{ padding:'4px 8px', borderRadius:7, border:'1px solid #e2e8f0', background: showEmailSettings ? '#fffbeb' : '#f8fafc', fontSize:14, cursor:'pointer' }}>️</button>
        <button onClick={() => { setShowFolderMgr(v => !v); setShowEmailSettings(false) }}
          title="Manage folders"
-         style={{ padding:'4px 8px', borderRadius:7, border:'1px solid #e2e8f0', background: showFolderMgr ? '#f0f7ff' : '#f8fafc', fontSize:14, cursor:'pointer' }}>🗂</button>
+         style={{ padding:'4px 8px', borderRadius:7, border:'1px solid #e2e8f0', background: showFolderMgr ? '#f0f7ff' : '#f8fafc', fontSize:14, cursor:'pointer' }}></button>
      </div>
    </div>
    <div style={{ display:'flex', gap:8, marginBottom:0 }}>
@@ -889,7 +896,7 @@ function InboxView({ country, salonId }) {
          </div>
        </div>
        {c.channel === 'email' && c.customer_name && <div style={{ fontSize:11, color:'#64748b', fontWeight:600, marginBottom:2 }}>{c.customer_name}</div>}
-       {c.folder && <div style={{ fontSize:10, color:'#c9a96e', fontWeight:700, marginBottom:2 }}>📁 {folderName(c.folder)}</div>}
+       {c.folder && <div style={{ fontSize:10, color:'#c9a96e', fontWeight:700, marginBottom:2 }}>{folderName(c.folder)}</div>}
        <div style={{ fontSize:12, color:'#64748b', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>{c.last_message || '—'}</div>
        <div style={{ fontSize:11, color:'#94a3b8', marginTop:3 }}>
          {c.last_message_at ? new Date(c.last_message_at).toLocaleString('en-GB', { day:'numeric', month:'short', hour:'2-digit', minute:'2-digit' }) : ''}
@@ -918,7 +925,7 @@ function InboxView({ country, salonId }) {
          {folders.filter(f => f.id !== activeConv.folder).map(f => (
            <button key={f.id} onClick={() => moveFolder(activeConv.id, f.id)}
              style={{ fontSize:11, padding:'3px 10px', borderRadius:8, border:'1px solid #e2e8f0', background:'#f8fafc', cursor:'pointer', fontWeight:700, color:'#64748b' }}>
-             📁 {f.name}
+             {f.name}
            </button>
          ))}
        </div>
@@ -978,7 +985,7 @@ function InboxView({ country, salonId }) {
    {/* AI suggestions */}
    {(loadingSugg || suggestions.length > 0) && (
      <div style={{ padding:'8px 16px', background:'#fafafa', borderTop:'1px solid #e2e8f0', display:'flex', gap:8, flexWrap:'wrap', alignItems:'center' }}>
-       <span style={{ fontSize:11, fontWeight:700, color:'#94a3b8' }}>✨</span>
+       <span style={{ fontSize:11, fontWeight:700, color:'#94a3b8' }}></span>
        {loadingSugg && <span style={{ fontSize:12, color:'#94a3b8' }}>Generating suggestions…</span>}
        {suggestions.map((s, i) => (
          <button key={i} onClick={() => setReply(s)}
@@ -1078,8 +1085,8 @@ function ClientDetail({ client, loading, onBack }) {
        axios.put(API + '/api/customers/' + client.id, putPayload),
        axios.patch(API + '/api/customers/' + client.id, patchPayload),
      ])
-     console.log('[ClientDetail] PUT response ✓',   putRes.data)
-     console.log('[ClientDetail] PATCH response ✓', patchRes.data)
+     console.log('[ClientDetail] PUT response ok',   putRes.data)
+     console.log('[ClientDetail] PATCH response ok', patchRes.data)
      setBase({
        full_name: editName, phone: editPhone, email: editEmail,
        difficult_client: difficult, stars_earned: stars,
@@ -1274,7 +1281,7 @@ function RewardsTab() {
          <input style={{ ...inp, width:140 }} type="number" min="0" step="0.01" value={amount}
            onChange={e => setAmount(e.target.value)} />
          <button onClick={handleSave} style={btnPrimary}>Save</button>
-         {saved && <span style={{ fontSize:13, color:'#059669', fontWeight:700 }}>Saved ✓</span>}
+         {saved && <span style={{ fontSize:13, color:'#059669', fontWeight:700 }}>Saved</span>}
        </div>
      )}
    </div>
@@ -1527,7 +1534,7 @@ function LoginPage({ onLogin }) {
 
        {mode === 'forgot' && resetSent && (
          <div style={{ textAlign:'center' }}>
-           <div style={{ fontSize:32, marginBottom:12 }}>📧</div>
+           
            <div style={{ fontSize:15, fontWeight:700, color:'#0f172a', marginBottom:8 }}>Check your email</div>
            <div style={{ fontSize:13, color:'#64748b', marginBottom:20 }}>We've sent a password reset link to <strong>{email}</strong>.</div>
            <button onClick={() => { setMode('login'); setResetSent(false) }} style={{ background:'none', border:'none', color:'#3b82f6', fontWeight:700, cursor:'pointer', fontSize:13, padding:0 }}>← Back to sign in</button>
@@ -2730,7 +2737,7 @@ await axios.put(API + '/api/bookings/' + editingId, {
            background: selected ? '#eff6ff' : '#fff', display:'flex', alignItems:'center', gap:10 }}>
              <div style={{ width:16, height:16, borderRadius:4, border: selected ? 'none' : '2px solid #cbd5e1',
              background: selected ? '#3b82f6' : 'transparent', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
-               {selected && <span style={{ color:'#fff', fontSize:11, fontWeight:900 }}>✓</span>}
+               {selected && <span style={{ color:'#fff', fontSize:11, fontWeight:900 }}>ok</span>}
              </div>
              <span style={{ flex:1, fontWeight: selected ? 700 : 500, color: selected ? '#1d4ed8' : '#0f172a' }}>{s.name}</span>
              <span style={{ fontSize:12, color: selected ? '#3b82f6' : '#94a3b8', fontWeight:600 }}>£{s.price} · {s.duration_minutes}m</span>
@@ -3237,52 +3244,37 @@ function GiftCardsView() {
 
 // ── Contact Support Widget ─────────────────────────────────────────────────────
 function SupportWidget({ salon }) {
-  const isVN = salon?.country === 'Vietnam' || salon?.country === 'VN'
-  const label = isVN ? 'Liên hệ hỗ trợ' : 'Contact Support'
   const [open, setOpen] = useState(false)
-  const [msg, setMsg]   = useState('')
-  const [status, setStatus] = useState(null) // 'sending' | 'sent' | 'error'
-
-  async function send() {
-    if (!msg.trim()) return
-    setStatus('sending')
-    try {
-      await axios.post(API + '/api/support/contact', { message: msg })
-      setStatus('sent')
-      setMsg('')
-      setTimeout(() => { setOpen(false); setStatus(null) }, 2500)
-    } catch (e) {
-      setStatus('error')
-    }
-  }
-
+  const salonName = salon?.name || ''
+  const salonId   = salon?.id   || ''
+  const emailSubject = encodeURIComponent('Lien he ho tro - ' + salonName)
+  const emailBody    = encodeURIComponent('Salon: ' + salonName + '\nSalon ID: ' + salonId + '\n\nMo ta van de:\n')
+  const whatsappText = encodeURIComponent('Xin chao, toi can ho tro cho salon: ' + salonName + ' (ID: ' + salonId + ')')
+  const contactLinks = [
+    { label: 'Messenger', href: 'https://m.me/orbitcalendar',      bg: '#0084ff', color: '#fff' },
+    { label: 'Email',     href: `mailto:hello@orbit-calendar.com?subject=${emailSubject}&body=${emailBody}`, bg: '#f1f5f9', color: '#0f172a' },
+    { label: 'WhatsApp',  href: `https://wa.me/447908000000?text=${whatsappText}`, bg: '#25d366', color: '#fff' },
+  ]
   return (
     <>
       <button onClick={() => setOpen(true)} style={{ width:'100%', textAlign:'left', padding:'9px 12px', borderRadius:10, border:'none', background:'transparent', color:'#94a3b8', fontWeight:700, fontSize:13, cursor:'pointer', display:'flex', alignItems:'center', gap:9 }}>
-        <span style={{ fontSize:14 }}>💬</span>{label}
+        Lien he ho tro
       </button>
       {open && (
         <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.4)', display:'flex', alignItems:'center', justifyContent:'center', zIndex:9999 }}>
-          <div style={{ background:'#fff', borderRadius:16, padding:28, width:380, maxWidth:'90vw', boxShadow:'0 20px 60px rgba(0,0,0,0.2)' }}>
+          <div style={{ background:'#fff', borderRadius:16, padding:28, width:340, maxWidth:'90vw', boxShadow:'0 20px 60px rgba(0,0,0,0.2)' }}>
             <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:16 }}>
-              <h3 style={{ margin:0, fontSize:16, fontWeight:900, color:'#0f172a' }}>{label}</h3>
-              <button onClick={() => { setOpen(false); setStatus(null) }} style={{ background:'none', border:'none', fontSize:22, cursor:'pointer', color:'#94a3b8' }}>×</button>
+              <h3 style={{ margin:0, fontSize:16, fontWeight:900, color:'#0f172a' }}>Lien he ho tro</h3>
+              <button onClick={() => setOpen(false)} style={{ background:'none', border:'none', fontSize:22, cursor:'pointer', color:'#94a3b8', lineHeight:1 }}>x</button>
             </div>
-            <p style={{ fontSize:13, color:'#64748b', margin:'0 0 14px' }}>
-              {isVN ? 'Gửi tin nhắn cho đội ngũ Orbit. Chúng tôi sẽ phản hồi qua email sớm nhất.' : 'Send a message to the Orbit team. We\'ll get back to you by email.'}
-            </p>
-            <textarea value={msg} onChange={e => setMsg(e.target.value)}
-              rows={4} placeholder={isVN ? 'Mô tả vấn đề của bạn…' : 'Describe your issue or question…'}
-              style={{ ...inp, resize:'vertical', minHeight:90 }} />
-            {status === 'sent'   && <p style={{ color:'#059669', fontSize:13, margin:'10px 0 0' }}>✓ {isVN ? 'Đã gửi!' : 'Message sent!'}</p>}
-            {status === 'error'  && <p style={{ color:'#ef4444', fontSize:13, margin:'10px 0 0' }}>{isVN ? 'Gửi thất bại. Vui lòng thử lại.' : 'Failed to send. Please try again.'}</p>}
-            <div style={{ display:'flex', gap:10, marginTop:16 }}>
-              <button onClick={() => { setOpen(false); setStatus(null) }} style={{ ...btnGhost, flex:1, padding:'10px 16px' }}>
-                {isVN ? 'Huỷ' : 'Cancel'}
-              </button>
-              <button onClick={send} disabled={status === 'sending' || !msg.trim()} style={{ ...btnPrimary, flex:1, padding:'10px 16px', opacity: (!msg.trim() || status === 'sending') ? 0.6 : 1 }}>
-                {status === 'sending' ? (isVN ? 'Đang gửi…' : 'Sending…') : (isVN ? 'Gửi' : 'Send')}
-              </button>
+            <p style={{ fontSize:13, color:'#64748b', margin:'0 0 16px' }}>Chon kenh lien he voi doi ngu Orbit:</p>
+            <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
+              {contactLinks.map(({ label, href, bg, color }) => (
+                <a key={label} href={href} target="_blank" rel="noreferrer"
+                  style={{ display:'block', textAlign:'center', padding:'12px 16px', borderRadius:10, background:bg, color, fontWeight:800, fontSize:14, textDecoration:'none', border: bg === '#f1f5f9' ? '1px solid #e2e8f0' : 'none' }}>
+                  {label}
+                </a>
+              ))}
             </div>
           </div>
         </div>
@@ -3307,6 +3299,7 @@ function WidgetSettingsView({ salon }) {
   const [faqs,               setFaqs]               = useState([])
   const [saving,             setSaving]             = useState(false)
   const [copied,             setCopied]             = useState(null)
+  const [googleReviewUrl,    setGoogleReviewUrl]    = useState('')
 
   useEffect(() => {
     if (!salonId) return
@@ -3318,7 +3311,8 @@ function WidgetSettingsView({ salon }) {
       axios.get(API + '/api/settings/widget_group_upsell_enabled').catch(() => ({ data: null })),
       axios.get(API + '/api/settings/widget_group_upsell_products').catch(() => ({ data: null })),
       axios.get(API + '/api/settings/widget_faqs').catch(() => ({ data: null })),
-    ]).then(([acr, snr, er, pr, ger, gpr, fr]) => {
+      axios.get(API + '/api/settings/google_review_url').catch(() => ({ data: null })),
+    ]).then(([acr, snr, er, pr, ger, gpr, fr, grr]) => {
       if (acr.data?.value) setAccentColor(acr.data.value)
       if (snr.data?.value) setWidgetSalonName(snr.data.value)
       if (er.data?.value != null) setUpsellEnabled(er.data.value === 'true')
@@ -3326,6 +3320,7 @@ function WidgetSettingsView({ salon }) {
       if (ger.data?.value != null) setGroupUpsellEnabled(ger.data.value === 'true')
       if (gpr.data?.value) { try { setGroupProducts(JSON.parse(gpr.data.value)) } catch (_) {} }
       if (fr.data?.value)  { try { setFaqs(JSON.parse(fr.data.value)) } catch (_) {} }
+      if (grr?.data?.value) setGoogleReviewUrl(grr.data.value)
     })
   }, [salonId])
 
@@ -3374,6 +3369,7 @@ function WidgetSettingsView({ salon }) {
         axios.post(API + '/api/settings/widget_group_upsell_enabled',   { value: String(groupUpsellEnabled) }),
         axios.post(API + '/api/settings/widget_group_upsell_products',  { value: JSON.stringify(groupProducts) }),
         axios.post(API + '/api/settings/widget_faqs',                   { value: JSON.stringify(faqs) }),
+        ...(googleReviewUrl !== undefined ? [axios.post(API + '/api/settings/google_review_url', { value: googleReviewUrl })] : []),
       ])
     } catch (err) { alert('Save failed: ' + (err.response?.data?.error || err.message)) }
     setSaving(false)
@@ -3428,6 +3424,10 @@ function WidgetSettingsView({ salon }) {
           <label style={lbl}>Salon name shown in widget header</label>
           <input style={inp} value={widgetSalonName} onChange={e => setWidgetSalonName(e.target.value)}
             placeholder={salonName || 'e.g. Orbit Nails'} />
+          <label style={{ ...lbl, marginTop:14 }}>Google Review URL</label>
+          <input style={inp} value={googleReviewUrl} onChange={e => setGoogleReviewUrl(e.target.value)}
+            placeholder='https://g.page/r/YOUR-BUSINESS-ID/review' />
+          <div style={{ fontSize:11, color:'#94a3b8', marginTop:4 }}>Used in loyalty thank-you emails — stars 4-5 link here, stars 1-3 link to your feedback widget.</div>
           <label style={{ ...lbl, marginTop:14 }}>Accent colour</label>
           <div style={{ display:'flex', gap:10, alignItems:'center', marginTop:4 }}>
             <input type="color" value={accentColor || '#c9a96e'}
@@ -3763,7 +3763,7 @@ function OnboardingWizard({ salon, onComplete }) {
             <div key={i} style={{ flex:1, textAlign:'center' }}>
               <div style={{ height:4, borderRadius:4, background: i <= step ? '#0f172a' : '#e2e8f0', marginBottom:6, transition:'background 0.2s' }} />
               <div style={{ fontSize:11, fontWeight: i === step ? 800 : 500, color: i === step ? '#0f172a' : '#94a3b8', textTransform:'uppercase', letterSpacing:0.5 }}>
-                {i < step ? '✓ ' : ''}{label}
+                {i < step ? '> ' : ''}{label}
               </div>
             </div>
           ))}
