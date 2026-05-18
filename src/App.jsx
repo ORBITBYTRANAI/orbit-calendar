@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import './mobile.css'
 import { createPortal } from 'react-dom'
 import Analytics from './Analytics'
