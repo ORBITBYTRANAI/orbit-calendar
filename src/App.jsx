@@ -3300,6 +3300,7 @@ function WidgetSettingsView({ salon }) {
   const [saving,             setSaving]             = useState(false)
   const [copied,             setCopied]             = useState(null)
   const [googleReviewUrl,    setGoogleReviewUrl]    = useState('')
+  const [nailArtTiers,       setNailArtTiers]       = useState([{"tier_name": "Simple", "min_price": 15, "max_price": 25, "sort_order": 1}, {"tier_name": "Moderate", "min_price": 25, "max_price": 40, "sort_order": 2}, {"tier_name": "Detailed", "min_price": 40, "max_price": 60, "sort_order": 3}, {"tier_name": "Intricate", "min_price": 60, "max_price": 100, "sort_order": 4}])
 
   useEffect(() => {
     if (!salonId) return
@@ -3312,7 +3313,8 @@ function WidgetSettingsView({ salon }) {
       axios.get(API + '/api/settings/widget_group_upsell_products').catch(() => ({ data: null })),
       axios.get(API + '/api/settings/widget_faqs').catch(() => ({ data: null })),
       axios.get(API + '/api/settings/google_review_url').catch(() => ({ data: null })),
-    ]).then(([acr, snr, er, pr, ger, gpr, fr, grr]) => {
+      axios.get(API + '/api/settings/nail-art-tiers').catch(() => ({ data: null })),
+    ]).then(([acr, snr, er, pr, ger, gpr, fr, grr, natr]) => {
       if (acr.data?.value) setAccentColor(acr.data.value)
       if (snr.data?.value) setWidgetSalonName(snr.data.value)
       if (er.data?.value != null) setUpsellEnabled(er.data.value === 'true')
@@ -3321,6 +3323,7 @@ function WidgetSettingsView({ salon }) {
       if (gpr.data?.value) { try { setGroupProducts(JSON.parse(gpr.data.value)) } catch (_) {} }
       if (fr.data?.value)  { try { setFaqs(JSON.parse(fr.data.value)) } catch (_) {} }
       if (grr?.data?.value) setGoogleReviewUrl(grr.data.value)
+      if (Array.isArray(natr?.data) && natr.data.length > 0) setNailArtTiers(natr.data)
     })
   }, [salonId])
 
@@ -3370,6 +3373,7 @@ function WidgetSettingsView({ salon }) {
         axios.post(API + '/api/settings/widget_group_upsell_products',  { value: JSON.stringify(groupProducts) }),
         axios.post(API + '/api/settings/widget_faqs',                   { value: JSON.stringify(faqs) }),
         ...(googleReviewUrl !== undefined ? [axios.post(API + '/api/settings/google_review_url', { value: googleReviewUrl })] : []),
+        axios.put(API + '/api/settings/nail-art-tiers', { tiers: nailArtTiers }),
       ])
     } catch (err) { alert('Save failed: ' + (err.response?.data?.error || err.message)) }
     setSaving(false)
@@ -3514,6 +3518,26 @@ function WidgetSettingsView({ salon }) {
             {faqs.length < 10 && (
               <button onClick={() => setFaqs(f => [...f, { question:'', answer:'' }])} style={{ ...btnGhost, fontSize:12, padding:'8px 14px', alignSelf:'flex-start' }}>+ Add FAQ</button>
             )}
+          </div>
+        </div>
+
+
+        <div style={card}>
+          <div style={secTitle}>Nail Art Price Estimator</div>
+          <div style={secSub}>Set price ranges for each nail art complexity tier. Customers see these estimates via the widget.</div>
+          <div style={{ display:'grid', gridTemplateColumns:'1fr 90px 90px', gap:'6px 10px', alignItems:'center' }}>
+            <div style={{ fontSize:11, fontWeight:700, color:'#94a3b8', textTransform:'uppercase', letterSpacing:0.5 }}>Tier</div>
+            <div style={{ fontSize:11, fontWeight:700, color:'#94a3b8', textTransform:'uppercase', letterSpacing:0.5 }}>Min (£)</div>
+            <div style={{ fontSize:11, fontWeight:700, color:'#94a3b8', textTransform:'uppercase', letterSpacing:0.5 }}>Max (£)</div>
+            {nailArtTiers.map((t, i) => (
+              <React.Fragment key={t.tier_name}>
+                <div style={{ fontSize:13, fontWeight:700, color:'#0f172a', padding:'6px 0' }}>{t.tier_name}</div>
+                <input style={{ ...inp, fontSize:12 }} type="number" min="0" placeholder="0"
+                  value={t.min_price} onChange={e => setNailArtTiers(prev => prev.map((x, xi) => xi !== i ? x : { ...x, min_price: e.target.value }))} />
+                <input style={{ ...inp, fontSize:12 }} type="number" min="0" placeholder="0"
+                  value={t.max_price} onChange={e => setNailArtTiers(prev => prev.map((x, xi) => xi !== i ? x : { ...x, max_price: e.target.value }))} />
+              </React.Fragment>
+            ))}
           </div>
         </div>
 
